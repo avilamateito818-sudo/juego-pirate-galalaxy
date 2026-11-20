@@ -8,17 +8,21 @@ datasource db {
 }
 
 model Pilot {
-  id           String            @id @default(cuid())
-  callsign     String            @unique
-  email        String            @unique
-  passwordHash String
-  cryonite     Int               @default(0)
-  energy       Int               @default(100)
-  activePlanet String            @default("vega_kalabesh")
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  ships        Ship[]
-  blueprints   BlueprintUnlock[]
+  id                String            @id @default(cuid())
+  callsign          String            @unique
+  email             String            @unique
+  passwordHash      String
+  cryonite          Int               @default(0)
+  blueprints        Int               @default(0)
+  kills             Int               @default(0)
+  energy            Int               @default(100)
+  activePlanet      String            @default("vega_kalabesh")
+  activeShipModelId String            @default("vega_scout")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  ships             Ship[]
+  blueprintUnlocks  BlueprintUnlock[]
+  missions          MissionProgress[]
 
   @@index([activePlanet])
 }
@@ -28,12 +32,13 @@ model Ship {
   pilotId     String
   shipModelId String
   isActive    Boolean  @default(false)
-  hullMax     Int      @default(100)
-  shieldMax   Int      @default(50)
+  hullMax     Int      @default(110)
+  shieldMax   Int      @default(60)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   pilot       Pilot    @relation(fields: [pilotId], references: [id], onDelete: Cascade)
 
+  @@unique([pilotId, shipModelId])
   @@index([pilotId])
 }
 
@@ -48,5 +53,20 @@ model BlueprintUnlock {
   pilot       Pilot    @relation(fields: [pilotId], references: [id], onDelete: Cascade)
 
   @@unique([pilotId, blueprintId])
+  @@index([pilotId])
+}
+
+model MissionProgress {
+  id          String   @id @default(cuid())
+  pilotId     String
+  missionId   String
+  progress    Int      @default(0)
+  targetCount Int      @default(1)
+  completed   Boolean  @default(false)
+  claimed     Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+  pilot       Pilot    @relation(fields: [pilotId], references: [id], onDelete: Cascade)
+
+  @@unique([pilotId, missionId])
   @@index([pilotId])
 }

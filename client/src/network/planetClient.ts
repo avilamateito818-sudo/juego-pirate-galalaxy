@@ -2,6 +2,7 @@ import { Client, type Room } from 'colyseus.js';
 import {
   HANGAR_SHIPS,
   NETWORK_MESSAGES,
+  PLANETS,
   SIMULATION_CONSTANTS,
   distanceXZ,
   getTerrainHeight,
@@ -11,6 +12,8 @@ import {
   type EnemyAiState,
   type EnemyArchetypeId,
   type LootKind,
+  type MissionId,
+  type MissionProgressState,
   type MovementInput,
   type PlanetId,
   type ShipModelId,
@@ -18,11 +21,22 @@ import {
 } from '@starcorsair/shared';
 import { soundEngine } from '../audio/soundEngine';
 import { useHudStore, type TargetHudSummary } from '../store/useHudStore';
+import { clearStoredToken } from './authApi';
+
+interface ServerMissionSnapshot {
+  missionId: MissionId;
+  progress: number;
+  targetCount: number;
+  completed: boolean;
+  claimed: boolean;
+}
 
 interface ServerShipSnapshot {
   id: string;
+  pilotId: string;
   callsign: string;
   shipModelId: ShipModelId;
+  ownedShipsCsv: string;
   x: number;
   y: number;
   z: number;
@@ -47,6 +61,7 @@ interface ServerShipSnapshot {
   cd6: number;
   cd7: number;
   cd8: number;
+  missions?: Iterable<ServerMissionSnapshot>;
 }
 
 interface ServerEnemySnapshot {
@@ -155,13 +170,15 @@ let effectSeq = 1;
 
 /**
  * Gestor de red Colyseus + buffers mutables de alta frecuencia fuera de React
- * (ARCHITECTURE.md Regla 4, Regla 6 y Regla 11).
+ * (ARCHITECTURE.md Regla 4, Regla 6, Regla 10 y Regla 11).
  */
 class PlanetNetworkClient {
   private readonly client = new Client(WS_URL);
   private room: Room<ServerPlanetState> | null = null;
   private connecting = false;
   private planetId: PlanetId = 'vega_kalabesh';
+  private activeToken: string | null = null;
+  private intentionalSwitch = false;
 
   public localSessionId: string | null = null;
   public localShipModelId: ShipModelId = 'vega_scout';
@@ -186,19 +203,50 @@ class PlanetNetworkClient {
   private nextSeq = 1;
   private lastHudSyncAt = 0;
 
-  public async connect(planetId: PlanetId = 'vega_kalabesh'): Promise<void> {
-    if (this.room || this.connecting) return;
+  public async connect(planetId: PlanetId, token: string): Promise<void> {
+    if (this.connecting) return;
+    if (this.room && this.planetId === planetId && this.activeToken === token) return;
+
+    if (this.room) {
+      this.intentionalSwitch = true;
+      await this.room.leave();
+      this.room = null;
+      this.intentionalSwitch = false;
+    }
+
     this.connecting = true;
     this.planetId = planetId;
+    this.activeToken = token;
+    this.pendingInputs = [];
+    this.remoteShips.clear();
+    this.enemies.clear();
+    this.drops.clear();
+    this.effects.length = 0;
+    this.localTargetId = '';
+    this.localTransform = {
+      x: 0,
+      y:
+        getTerrainHeight(planetId, 0, 0) +
+        HANGAR_SHIPS[this.localShipModelId].movement.hoverHeight,
+      z: 0,
+      yaw: 0
+    };
+
     useHudStore.getState().setConnection('connecting', null, null);
+    useHudStore.getState().bumpEnemyVersion();
+    useHudStore.getState().bumpDropVersion();
 
     try {
       const room = await this.client.joinOrCreate<ServerPlanetState>('planet', {
-        planetId
+        planetId,
+        token
       });
       this.room = room;
       this.localSessionId = room.sessionId;
       useHudStore.getState().setConnection('connected', room.sessionId, null);
+      useHudStore
+        .getState()
+        .pushLog(`Aterrizaje autorizado en ${PLANETS[planetId].name}.`, 'info');
 
       room.onStateChange((state) => {
         this.handleStateSnapshot(state);
@@ -208,13 +256,30 @@ class PlanetNetworkClient {
         this.handleCombatEvent(event);
       });
 
-      room.onLeave(() => {
-        this.room = null;
+      room.onLeave((code) => {
+        if (this.room === room) {
+          this.room = null;
+        }
+        if (this.intentionalSwitch) return;
+
         this.localSessionId = null;
         this.pendingInputs = [];
         this.remoteShips.clear();
         this.enemies.clear();
         this.drops.clear();
+        useHudStore.getState().bumpEnemyVersion();
+        useHudStore.getState().bumpDropVersion();
+
+        if (code === 4001) {
+          clearStoredToken();
+          useHudStore
+            .getState()
+            .clearAuthSession(
+              'Sesión cerrada: iniciaste sesión con este piloto en otra pestaña.'
+            );
+          return;
+        }
+
         useHudStore.getState().setConnection('offline', null, null);
         useHudStore.getState().setPlayerCount(0);
       });
@@ -223,18 +288,35 @@ class PlanetNetworkClient {
         err instanceof Error
           ? err.message
           : 'No se pudo conectar al servidor Colyseus (ws://127.0.0.1:2567).';
-      useHudStore.getState().setConnection('error', null, message);
+      if (message.includes('401') || message.toLowerCase().includes('jwt')) {
+        clearStoredToken();
+        useHudStore.getState().clearAuthSession(message);
+      } else {
+        useHudStore.getState().setConnection('error', null, message);
+      }
     } finally {
       this.connecting = false;
     }
   }
 
+  public travelToPlanet(targetPlanetId: PlanetId): void {
+    if (!this.activeToken) return;
+    if (targetPlanetId === this.planetId) {
+      this.castAbility(8);
+      return;
+    }
+    useHudStore.getState().setPlanetId(targetPlanetId);
+  }
+
   public disconnect(): void {
+    this.intentionalSwitch = true;
     if (this.room) {
       void this.room.leave();
       this.room = null;
     }
+    this.intentionalSwitch = false;
     this.localSessionId = null;
+    this.activeToken = null;
     this.pendingInputs = [];
     this.remoteShips.clear();
     this.enemies.clear();
@@ -310,6 +392,11 @@ class PlanetNetworkClient {
   public buyOrEquipShip(shipModelId: ShipModelId): void {
     if (!this.room) return;
     this.room.send(NETWORK_MESSAGES.BUY_SHIP, { shipModelId });
+  }
+
+  public claimMission(missionId: MissionId): void {
+    if (!this.room) return;
+    this.room.send(NETWORK_MESSAGES.CLAIM_MISSION, { missionId });
   }
 
   private handleCombatEvent(event: CombatEvent): void {
@@ -448,11 +535,15 @@ class PlanetNetworkClient {
         });
         soundEngine.playExplosion();
         if (event.message) {
-          hud.pushLog(event.message, event.targetId === this.localSessionId ? 'warn' : 'loot');
+          hud.pushLog(
+            event.message,
+            event.targetId === this.localSessionId ? 'warn' : 'loot'
+          );
         }
         break;
 
       case 'loot_collected':
+      case 'mission_claimed':
         this.pushEffect({
           kind: 'ring',
           fromX: event.fromX,
@@ -491,7 +582,6 @@ class PlanetNetworkClient {
   }
 
   private handleStateSnapshot(state: ServerPlanetState): void {
-    // 1. Enemigos IA
     let enemiesTopologyChanged = false;
     if (state.enemies) {
       const seenEnemies = new Set<string>();
@@ -542,7 +632,6 @@ class PlanetNetworkClient {
       useHudStore.getState().bumpEnemyVersion();
     }
 
-    // 2. Drops de botín
     let dropsChanged = false;
     if (state.drops) {
       const seenDrops = new Set<string>();
@@ -573,7 +662,6 @@ class PlanetNetworkClient {
       useHudStore.getState().bumpDropVersion();
     }
 
-    // 3. Pilotos (local + remotos)
     if (!state.ships) return;
 
     const seenRemoteIds = new Set<string>();
@@ -668,7 +756,6 @@ class PlanetNetworkClient {
       useHudStore.getState().setPlayerCount(count);
     }
 
-    // Sincronización cuantizada del HUD (~10 Hz) para evitar re-renders innecesarios (Regla 6)
     const now = performance.now();
     if (localSnapshot && now - this.lastHudSyncAt >= 90) {
       this.lastHudSyncAt = now;
@@ -695,8 +782,24 @@ class PlanetNetworkClient {
             }
           : null;
 
+      const ownedShips = snap.ownedShipsCsv
+        .split(',')
+        .filter((id): id is ShipModelId => id in HANGAR_SHIPS);
+
+      const missions: MissionProgressState[] = snap.missions
+        ? Array.from(snap.missions, (m) => ({
+            missionId: m.missionId,
+            progress: m.progress,
+            targetCount: m.targetCount,
+            completed: m.completed,
+            claimed: m.claimed
+          }))
+        : useHudStore.getState().missions;
+
       useHudStore.getState().syncLocalHud({
         shipModelId: snap.shipModelId,
+        ownedShips: ownedShips.length > 0 ? ownedShips : ['vega_scout'],
+        missions,
         hull: Math.round(snap.hull),
         hullMax: snap.hullMax,
         shield: Math.round(snap.shield),

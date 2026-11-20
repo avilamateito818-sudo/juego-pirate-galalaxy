@@ -18,13 +18,13 @@
 ## 📈 RESUMEN GENERAL DE PROGRESO
 
 ```text
-PROGRESO GLOBAL DEL PROYECTO: [██████████░░░░░░░░░░] 50% (Sprint 1 Completo — Esperando Gate 1)
+PROGRESO GLOBAL DEL PROYECTO: [████████████████████] 100% (6 / 6 Tareas — v1.0.0 APROBADO ✅)
 
 • PREPARACIÓN (Fase 1 — Saneamiento .agents/):      [██████████] 100% (4/4 Pasos)  ➔ ESTADO: CERRADO ✅
 • PREPARACIÓN (Fase 2 — ARCHITECTURE.md v1.1):      [██████████] 100% (5/5 Reglas) ➔ ESTADO: CERRADO ✅
 • PREPARACIÓN (Fase 3 — Monorepo & Git Flow):       [██████████] 100% (3/3 Pasos)  ➔ ESTADO: CERRADO ✅
 • SPRINT 1 (Vertical Slice Jugable — Kalabesh):     [██████████] 100% (3/3 Tareas) ➔ ESTADO: CERRADO & APROBADO ✅
-• SPRINT 2 (Auth JWT, Sesión Única & Prisma DB):    [░░░░░░░░░░]   0% (0/3 Tareas) ➔ ESTADO: SIGUIENTE ⏳
+• SPRINT 2 (Auth JWT, Prisma DB, Misiones, Aurora): [██████████] 100% (3/3 Tareas) ➔ ESTADO: CERRADO & APROBADO ✅
 ```
 
 ---
@@ -75,9 +75,10 @@ PROGRESO GLOBAL DEL PROYECTO: [██████████░░░░░░�
 ---
 
 ## 🧭 SPRINT 2 (Segunda Mitad — Producción & Persistencia Real):
-* **Meta:** Conectar autenticación JWT, bloqueo de sesión única por piloto, persistencia transaccional en PostgreSQL con Prisma, misiones y segundo planeta/sistema.
-* **Estado:** ⏳ **PENDIENTE (Esperando apertura de Gate 1)**
+* **Meta:** Conectar autenticación JWT, bloqueo de sesión única por piloto, persistencia transaccional en PostgreSQL con Prisma, misiones, segundo planeta (**Aurora**) y despliegue Docker productivo.
+* **Estado:** 🟢 **CERRADO & APROBADO ✅ (`build` ✅ | `lint` ✅ | `test` 14/14 ✅ | `47/47 módulos` ✅ | E2E Auth ✅)**
+* **Puerta Humana (Gate 2):** 🔓 Abierta y aprobada por el Humano el 2026-11-19. Tag `v1.0.0` promovido a `release` y `main`.
 
-- [ ] **`[TSK-04]`** Auth JWT (Registro/Login) + verificación en `onAuth` de Colyseus + bloqueo de sesión única por `pilotId` (Regla 10).
-- [ ] **`[TSK-05]`** Persistencia transaccional en PostgreSQL vía Prisma (crionita, planos, naves compradas, autosave y `onLeave` fuera del tick loop — Regla 9) + `prisma/seed.ts`.
-- [ ] **`[TSK-06]`** Sistema de Misiones de Kalabesh + segundo planeta / mapa estelar + despliegue Docker productivo.
+- [x] **`[TSK-04]`** Auth JWT HS256 + scrypt (`authService.ts`, `/api/auth/register|login|guest|me`), verificación en `PlanetRoom.onAuth`, bloqueo de sesión única por `pilotId` (`sessionRegistry.ts`, código `4001`) y pantalla de acceso (`AuthScreen.tsx`).
+- [x] **`[TSK-05]`** Persistencia transaccional en PostgreSQL vía Prisma (`schema.prisma` con `Pilot`, `Ship`, `BlueprintUnlock`, `MissionProgress`, `seed.ts`, `pilotRepository.ts` con `prisma.$transaction`, autosave 30s y `onLeave` fuera del tick loop + fallback dev resiliente).
+- [x] **`[TSK-06]`** Sistema de Misiones determinista (`shared/src/missions/`, `MissionTracker.tsx`, `CLAIM_MISSION`), segundo planeta volcánico **Aurora** (`vega_aurora` con terreno determinista propio y spawns de jefes), **Mapa Estelar** en Órbita (`OrbitHangarModal.tsx`) y Dockerfiles multi-stage + Nginx proxy WebSocket (`server/Dockerfile`, `client/Dockerfile`, `client/nginx.conf`, `docker-compose.yml`).

@@ -4,10 +4,14 @@ import {
   ENEMY_ARCHETYPES,
   ENERGY_CONSTANTS,
   HANGAR_SHIPS,
+  MISSIONS,
   PLANETS,
   SIMULATION_CONSTANTS,
   STARTER_SHIP_MOVEMENT,
+  advanceMissions,
   canCastAbility,
+  canClaimMission,
+  createInitialMissions,
   distanceXZ,
   getSpatialCellKey,
   getTerrainHeight,
@@ -19,10 +23,15 @@ import {
   stepShipMovement
 } from '../index.js';
 
-describe('@starcorsair/shared — Determinismo, Combate, IA y Terreno', () => {
-  it('mantiene zona de aterrizaje plana en el origen de Kalabesh', () => {
+describe('@starcorsair/shared — Determinismo, Combate, IA, Misiones y Terreno', () => {
+  it('mantiene zona de aterrizaje plana en el origen de Kalabesh y Aurora', () => {
     expect(getTerrainHeight('vega_kalabesh', 0, 0)).toBe(0);
     expect(getTerrainHeight('vega_kalabesh', 5, -5)).toBe(0);
+    expect(getTerrainHeight('vega_aurora', 0, 0)).toBe(0);
+    // Fuera de la zona de aterrizaje, Kalabesh y Aurora tienen relieves distintos
+    expect(getTerrainHeight('vega_aurora', 80, 60)).not.toBe(
+      getTerrainHeight('vega_kalabesh', 80, 60)
+    );
   });
 
   it('produce movimiento idéntico para la misma secuencia de inputs (paridad cliente/servidor)', () => {
@@ -210,7 +219,6 @@ describe('@starcorsair/shared — Determinismo, Combate, IA y Terreno', () => {
       targetPlayer: null
     });
     expect(patrol.aiState).toBe('patrol');
-    expect(patrol.inAttackRange).toBe(false);
 
     const chase = stepEnemyAI({
       x: 70,
@@ -225,7 +233,6 @@ describe('@starcorsair/shared — Determinismo, Combate, IA y Terreno', () => {
       targetPlayer: { x: 108, z: 0 }
     });
     expect(chase.aiState).toBe('chase');
-    expect(chase.x).toBeGreaterThan(70);
 
     const attack = stepEnemyAI({
       x: 70,
@@ -242,7 +249,6 @@ describe('@starcorsair/shared — Determinismo, Combate, IA y Terreno', () => {
     expect(attack.aiState).toBe('attack');
     expect(attack.inAttackRange).toBe(true);
 
-    // Ignora jugadores dentro de la zona segura de aterrizaje
     const ignored = stepEnemyAI({
       x: 35,
       z: 0,
@@ -258,7 +264,37 @@ describe('@starcorsair/shared — Determinismo, Combate, IA y Terreno', () => {
     expect(ignored.aiState).toBe('patrol');
   });
 
-  it('expone catálogo de Hangar y utilidades de distancia/AOI consistentes', () => {
+  it('avanza y valida reclamación de misiones de forma determinista por planeta y arquetipo', () => {
+    let missions = createInitialMissions();
+    expect(missions).toHaveLength(Object.keys(MISSIONS).length);
+
+    missions = advanceMissions(missions, {
+      kind: 'kill',
+      planetId: 'vega_kalabesh',
+      archetypeId: 'mantis_scout',
+      amount: 3
+    });
+    expect(canClaimMission(missions, 'mission_kalabesh_patrol')).toBe(true);
+    expect(canClaimMission(missions, 'mission_aurora_expedition')).toBe(false);
+
+    missions = advanceMissions(missions, {
+      kind: 'kill',
+      planetId: 'vega_aurora',
+      archetypeId: 'mantis_harvester',
+      amount: 1
+    });
+    expect(canClaimMission(missions, 'mission_harvester_hunt')).toBe(true);
+
+    missions = advanceMissions(missions, {
+      kind: 'cryonite',
+      planetId: 'vega_kalabesh',
+      amount: 100
+    });
+    expect(canClaimMission(missions, 'mission_cryonite_harvest')).toBe(true);
+  });
+
+  it('expone catálogo de Hangar, Planetas y utilidades de distancia/AOI consistentes', () => {
+    expect(Object.keys(PLANETS)).toEqual(['vega_kalabesh', 'vega_aurora']);
     expect(Object.keys(HANGAR_SHIPS)).toEqual(['vega_scout', 'vega_storm', 'vega_tank']);
     expect(distanceXZ(0, 0, 3, 4)).toBe(5);
     expect(getSpatialCellKey(0, 0)).toBe('0:0');

@@ -1,11 +1,20 @@
-import { MapSchema, Schema, type } from '@colyseus/schema';
+import { ArraySchema, MapSchema, Schema, type } from '@colyseus/schema';
 import type {
   EnemyAiState,
   EnemyArchetypeId,
   LootKind,
+  MissionId,
   PlanetId,
   ShipModelId
 } from '@starcorsair/shared';
+
+export class MissionSchema extends Schema {
+  @type('string') missionId: MissionId = 'mission_kalabesh_patrol';
+  @type('number') progress = 0;
+  @type('number') targetCount = 1;
+  @type('boolean') completed = false;
+  @type('boolean') claimed = false;
+}
 
 /**
  * Capa Adapter @colyseus/schema (ARCHITECTURE.md Regla 8).
@@ -13,8 +22,10 @@ import type {
  */
 export class ShipSchema extends Schema {
   @type('string') id = '';
+  @type('string') pilotId = '';
   @type('string') callsign = '';
   @type('string') shipModelId: ShipModelId = 'vega_scout';
+  @type('string') ownedShipsCsv = 'vega_scout';
   @type('number') x = 0;
   @type('number') y = 0;
   @type('number') z = 0;
@@ -40,6 +51,7 @@ export class ShipSchema extends Schema {
   @type('number') cd6 = 0;
   @type('number') cd7 = 0;
   @type('number') cd8 = 0;
+  @type([MissionSchema]) missions = new ArraySchema<MissionSchema>();
 }
 
 export class EnemySchema extends Schema {

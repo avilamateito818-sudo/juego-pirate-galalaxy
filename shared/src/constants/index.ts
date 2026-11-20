@@ -3,6 +3,8 @@ import type {
   AbilitySlot,
   EnemyArchetype,
   EnemyArchetypeId,
+  MissionDefinition,
+  MissionId,
   PlanetId,
   ShipModelId,
   ShipModelSpec,
@@ -14,7 +16,8 @@ export const SIMULATION_CONSTANTS = {
   FIXED_DT_SECONDS: 1 / 20,
   MAX_DELTA_MS: 250,
   CLIENT_INPUT_SEND_HZ: 20,
-  AOI_CELL_SIZE: 64
+  AOI_CELL_SIZE: 64,
+  AUTOSAVE_INTERVAL_MS: 30_000
 } as const;
 
 export const ENERGY_CONSTANTS = {
@@ -30,16 +33,63 @@ export const ENERGY_CONSTANTS = {
 export interface PlanetConfig {
   readonly id: PlanetId;
   readonly name: string;
+  readonly systemName: string;
+  readonly dangerLevel: string;
+  readonly description: string;
   readonly halfSize: number;
   readonly spawnPoint: { readonly x: number; readonly z: number };
+  readonly visual: {
+    readonly skyColor: string;
+    readonly fogColor: string;
+    readonly lowColor: string;
+    readonly midColor: string;
+    readonly highColor: string;
+    readonly padColor: string;
+    readonly rockColor: string;
+    readonly accentColor: string;
+  };
 }
 
 export const PLANETS: Record<PlanetId, PlanetConfig> = {
   vega_kalabesh: {
     id: 'vega_kalabesh',
-    name: 'Kalabesh (Sistema Vega)',
+    name: 'Kalabesh',
+    systemName: 'Sistema Vega',
+    dangerLevel: 'Nivel 1–3 • Sector Inicial',
+    description:
+      'Planeta fronterizo de colinas metálicas con patrullas de Exploradores e Interceptores Mantis.',
     halfSize: 240,
-    spawnPoint: { x: 0, z: 0 }
+    spawnPoint: { x: 0, z: 0 },
+    visual: {
+      skyColor: '#040814',
+      fogColor: '#040814',
+      lowColor: '#1f2f40',
+      midColor: '#3c5263',
+      highColor: '#64748b',
+      padColor: '#27394d',
+      rockColor: '#334155',
+      accentColor: '#0ea5e9'
+    }
+  },
+  vega_aurora: {
+    id: 'vega_aurora',
+    name: 'Aurora',
+    systemName: 'Sistema Vega',
+    dangerLevel: 'Nivel 2–4 • Zona Hostil',
+    description:
+      'Luna volcánica de cañones ámbar rica en Crionita, custodiada por Interceptores y dos Cosechadores Mantis.',
+    halfSize: 240,
+    spawnPoint: { x: 0, z: 0 },
+    visual: {
+      skyColor: '#14080a',
+      fogColor: '#1c0b0e',
+      lowColor: '#3b1d1a',
+      midColor: '#6b2f24',
+      highColor: '#a14d33',
+      padColor: '#45231e',
+      rockColor: '#2b1817',
+      accentColor: '#f97316'
+    }
   }
 };
 
@@ -280,3 +330,49 @@ export const ENEMY_ARCHETYPES: Record<EnemyArchetypeId, EnemyArchetype> = {
     color: '#c026d3'
   }
 };
+
+export const MISSIONS: Record<MissionId, MissionDefinition> = {
+  mission_kalabesh_patrol: {
+    id: 'mission_kalabesh_patrol',
+    title: 'Limpieza de Kalabesh',
+    description: 'Destruye 3 naves Mantis sobre la superficie de Kalabesh.',
+    planetId: 'vega_kalabesh',
+    objectiveKind: 'kill_any_planet',
+    targetCount: 3,
+    rewardCryonite: 80,
+    rewardBlueprints: 1
+  },
+  mission_cryonite_harvest: {
+    id: 'mission_cryonite_harvest',
+    title: 'Extracción de Crionita',
+    description: 'Recolecta 100 unidades de Crionita usando el Colector [2].',
+    planetId: 'any',
+    objectiveKind: 'collect_cryonite',
+    targetCount: 100,
+    rewardCryonite: 90,
+    rewardBlueprints: 0
+  },
+  mission_harvester_hunt: {
+    id: 'mission_harvester_hunt',
+    title: 'Caza del Cosechador',
+    description: 'Destruye 1 Cosechador Mantis (Minijefe violeta).',
+    planetId: 'any',
+    objectiveKind: 'kill_archetype',
+    targetArchetypeId: 'mantis_harvester',
+    targetCount: 1,
+    rewardCryonite: 180,
+    rewardBlueprints: 2
+  },
+  mission_aurora_expedition: {
+    id: 'mission_aurora_expedition',
+    title: 'Expedición a Aurora',
+    description: 'Viaja al planeta Aurora (Órbita [8] → Mapa Estelar) y destruye 4 Mantis.',
+    planetId: 'vega_aurora',
+    objectiveKind: 'kill_any_planet',
+    targetCount: 4,
+    rewardCryonite: 220,
+    rewardBlueprints: 2
+  }
+};
+
+export const MISSION_LIST: readonly MissionDefinition[] = Object.values(MISSIONS);

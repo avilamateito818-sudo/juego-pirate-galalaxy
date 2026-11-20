@@ -17,5 +17,36 @@ services:
       timeout: 5s
       retries: 10
 
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: starcorsair-server
+    profiles: ["prod"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      SERVER_PORT: 2567
+      DATABASE_URL: postgresql://${POSTGRES_USER:-starcorsair}:${POSTGRES_PASSWORD:-starcorsair_dev_password}@postgres:5432/${POSTGRES_DB:-starcorsair}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production-min-32-chars}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+    ports:
+      - "2567:2567"
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: starcorsair-client
+    profiles: ["prod"]
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "8080:80"
+
 volumes:
   starcorsair_pgdata:

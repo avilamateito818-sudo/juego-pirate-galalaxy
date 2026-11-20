@@ -1,4 +1,4 @@
-export type PlanetId = 'vega_kalabesh';
+export type PlanetId = 'vega_kalabesh' | 'vega_aurora';
 
 export type ShipModelId = 'vega_scout' | 'vega_storm' | 'vega_tank';
 
@@ -22,6 +22,17 @@ export type EnemyArchetypeId =
 export type EnemyAiState = 'patrol' | 'chase' | 'attack';
 
 export type LootKind = 'cryonite' | 'energy' | 'blueprint';
+
+export type MissionId =
+  | 'mission_kalabesh_patrol'
+  | 'mission_cryonite_harvest'
+  | 'mission_harvester_hunt'
+  | 'mission_aurora_expedition';
+
+export type MissionObjectiveKind =
+  | 'kill_any_planet'
+  | 'collect_cryonite'
+  | 'kill_archetype';
 
 export interface Vec2 {
   readonly x: number;
@@ -52,6 +63,10 @@ export interface CastAbilityInput {
 
 export interface BuyShipInput {
   readonly shipModelId: ShipModelId;
+}
+
+export interface ClaimMissionInput {
+  readonly missionId: MissionId;
 }
 
 export interface ShipTransform {
@@ -116,6 +131,45 @@ export interface EnemyArchetype {
   readonly color: string;
 }
 
+export interface MissionDefinition {
+  readonly id: MissionId;
+  readonly title: string;
+  readonly description: string;
+  readonly planetId: PlanetId | 'any';
+  readonly objectiveKind: MissionObjectiveKind;
+  readonly targetArchetypeId?: EnemyArchetypeId;
+  readonly targetCount: number;
+  readonly rewardCryonite: number;
+  readonly rewardBlueprints: number;
+}
+
+export interface MissionProgressState {
+  readonly missionId: MissionId;
+  readonly progress: number;
+  readonly targetCount: number;
+  readonly completed: boolean;
+  readonly claimed: boolean;
+}
+
+export interface AuthPilotProfile {
+  readonly id: string;
+  readonly callsign: string;
+  readonly email: string;
+  readonly cryonite: number;
+  readonly blueprints: number;
+  readonly kills: number;
+  readonly activePlanet: PlanetId;
+  readonly activeShipModelId: ShipModelId;
+  readonly ownedShips: readonly ShipModelId[];
+  readonly missions: readonly MissionProgressState[];
+}
+
+export interface AuthResponse {
+  readonly token: string;
+  readonly pilot: AuthPilotProfile;
+  readonly persistenceMode: 'postgresql' | 'memory-fallback';
+}
+
 export interface DamageInput {
   readonly rawDamage: number;
   readonly currentShield: number;
@@ -168,6 +222,7 @@ export interface CombatEvent {
     | 'shield_pulse'
     | 'explosion'
     | 'loot_collected'
+    | 'mission_claimed'
     | 'ability_rejected';
   readonly sourceId: string;
   readonly targetId?: string;
@@ -189,5 +244,6 @@ export const NETWORK_MESSAGES = {
   SELECT_TARGET: 'select_target',
   CAST_ABILITY: 'cast_ability',
   BUY_SHIP: 'buy_ship',
+  CLAIM_MISSION: 'claim_mission',
   COMBAT_EVENT: 'combat_event'
 } as const;

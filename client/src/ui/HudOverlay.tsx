@@ -1,8 +1,15 @@
-import { ABILITIES, HANGAR_SHIPS, PLANETS, type AbilitySlot } from '@starcorsair/shared';
+import {
+  ABILITIES,
+  HANGAR_SHIPS,
+  PLANETS,
+  type AbilitySlot
+} from '@starcorsair/shared';
 import { soundEngine } from '../audio/soundEngine';
+import { clearStoredToken } from '../network/authApi';
 import { planetClient } from '../network/planetClient';
 import { useHudStore, type CooldownsState } from '../store/useHudStore';
 import { MinimapRadar } from './MinimapRadar';
+import { MissionTracker } from './MissionTracker';
 import { OrbitHangarModal } from './OrbitHangarModal';
 
 const SLOTS: AbilitySlot[] = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -29,6 +36,9 @@ function getSlotCooldown(slot: AbilitySlot, cds: CooldownsState): number {
 }
 
 export function HudOverlay() {
+  const authToken = useHudStore((s) => s.authToken);
+  const callsign = useHudStore((s) => s.callsign);
+  const persistenceMode = useHudStore((s) => s.persistenceMode);
   const planetId = useHudStore((s) => s.planetId);
   const connectionStatus = useHudStore((s) => s.connectionStatus);
   const connectionError = useHudStore((s) => s.connectionError);
@@ -52,6 +62,7 @@ export function HudOverlay() {
   const muted = useHudStore((s) => s.muted);
 
   const shipSpec = HANGAR_SHIPS[shipModelId];
+  const planet = PLANETS[planetId];
   const blasterRange = ABILITIES[1].range;
   const targetInRange = target ? target.distance <= blasterRange : false;
 
@@ -67,19 +78,26 @@ export function HudOverlay() {
     useHudStore.getState().toggleMuted();
   };
 
+  const handleLogout = () => {
+    planetClient.disconnect();
+    clearStoredToken();
+    useHudStore.getState().clearAuthSession();
+  };
+
   return (
     <>
       <div className="pointer-events-none fixed inset-0 flex flex-col justify-between p-4">
-        {/* FILA SUPERIOR: Sector | Target Frame | Recursos + Radar */}
         <header className="grid grid-cols-3 items-start gap-4">
-          {/* Izquierda: Sector + Controles + Audio */}
+          {/* Izquierda: Piloto + Sector + Misiones */}
           <div className="flex flex-col items-start gap-2">
             <div className="rounded-lg border border-cyan-500/30 bg-slate-950/80 px-4 py-2 backdrop-blur-md">
-              <div className="text-[11px] uppercase tracking-widest text-cyan-400">
-                StarCorsair • {shipSpec.name}
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-cyan-400">
+                <span>{callsign || 'Piloto'}</span>
+                <span className="text-slate-600">•</span>
+                <span>{shipSpec.name}</span>
               </div>
               <div className="text-sm font-semibold text-slate-100">
-                {PLANETS[planetId].name}
+                {planet.name} ({planet.systemName})
               </div>
               <div className="mt-1 text-[11px] text-slate-400">
                 <span className="text-slate-200">WASD</span> volar •{' '}
@@ -89,7 +107,7 @@ export function HudOverlay() {
               </div>
             </div>
 
-            <div className="pointer-events-auto flex gap-2">
+            <div className="pointer-events-auto flex flex-wrap gap-1.5">
               <button
                 type="button"
                 onClick={handleToggleMute}
@@ -104,7 +122,16 @@ export function HudOverlay() {
               >
                 🎯 Fijar Mantis [Tab]
               </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-md border border-slate-700 bg-slate-950/80 px-2.5 py-1 text-[11px] text-slate-400 hover:border-rose-400 hover:text-rose-300"
+              >
+                Salir
+              </button>
             </div>
+
+            <MissionTracker />
           </div>
 
           {/* Centro: Target Frame o Aviso de Respawn */}
@@ -168,10 +195,10 @@ export function HudOverlay() {
             )}
           </div>
 
-          {/* Derecha: Recursos + Conexión + Radar */}
+          {/* Derecha: Recursos + Modo Persistencia + Radar */}
           <div className="flex flex-col items-end gap-2">
             <div className="flex flex-wrap items-center justify-end gap-2.5 rounded-lg border border-slate-700/60 bg-slate-950/80 px-3.5 py-2 text-xs backdrop-blur-md">
-              <span className="font-semibold text-amber-400">💎 {cryonite} Crionita</span>
+              <span className="font-semibold text-amber-400">💎 {cryonite}</span>
               <span className="text-slate-600">|</span>
               <span className="font-semibold text-purple-300">📘 {blueprints}</span>
               <span className="text-slate-600">|</span>
@@ -184,12 +211,25 @@ export function HudOverlay() {
               </span>
             </div>
 
-            {connectionError && (
+            <div className="text-[10px] text-slate-500">
+              DB:{' '}
+              <span
+                className={
+                  persistenceMode === 'postgresql'
+                    ? 'text-emerald-400'
+                    : 'text-amber-400'
+                }
+              >
+                {persistenceMode === 'postgresql' ? 'PostgreSQL' : 'Dev Memoria'}
+              </span>
+            </div>
+
+            {connectionError && authToken && (
               <div className="pointer-events-auto flex items-center gap-3 rounded-lg border border-rose-500/40 bg-rose-950/85 px-3 py-1.5 text-xs text-rose-200">
                 <span>Sin conexión al servidor (:2567)</span>
                 <button
                   type="button"
-                  onClick={() => void planetClient.connect(planetId)}
+                  onClick={() => void planetClient.connect(planetId, authToken)}
                   className="rounded bg-rose-600 px-2 py-0.5 font-semibold text-white hover:bg-rose-500"
                 >
                   Reintentar
@@ -201,9 +241,7 @@ export function HudOverlay() {
           </div>
         </header>
 
-        {/* FILA INFERIOR: Log de combate | Barras + Habilidades 1-8 */}
         <footer className="relative flex flex-col items-center gap-2.5">
-          {/* Combat Log abajo izquierda */}
           <div className="pointer-events-none absolute bottom-0 left-0 hidden w-80 flex-col gap-1 lg:flex">
             {combatLog.map((entry) => {
               const toneClass =
@@ -225,7 +263,6 @@ export function HudOverlay() {
             })}
           </div>
 
-          {/* Barras de Estado */}
           <div className="grid w-full max-w-md grid-cols-3 gap-2 rounded-lg border border-slate-700/60 bg-slate-950/85 p-2 text-xs backdrop-blur-md">
             <div>
               <div className="flex justify-between text-emerald-400">
@@ -273,7 +310,6 @@ export function HudOverlay() {
             </div>
           </div>
 
-          {/* Barra Inferior de Habilidades 1-8 estilo Pirate Galaxy */}
           <div className="pointer-events-auto flex flex-wrap justify-center gap-2 rounded-xl border border-cyan-500/35 bg-slate-950/90 p-2 backdrop-blur-md">
             {SLOTS.map((slotNum) => {
               const ability = ABILITIES[slotNum];

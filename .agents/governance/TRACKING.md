@@ -18,12 +18,12 @@
 ## 📈 RESUMEN GENERAL DE PROGRESO
 
 ```text
-PROGRESO GLOBAL DEL PROYECTO: [░░░░░░░░░░░░░░░░░░░░] 0% (0 / 0 Tareas de Código)
+PROGRESO GLOBAL DEL PROYECTO: [██████░░░░░░░░░░░░░░] 33% (1 / 3 Tareas Sprint 1)
 
 • PREPARACIÓN (Fase 1 — Saneamiento .agents/):      [██████████] 100% (4/4 Pasos) ➔ ESTADO: CERRADO ✅
 • PREPARACIÓN (Fase 2 — ARCHITECTURE.md v1.1):      [██████████] 100% (5/5 Reglas) ➔ ESTADO: CERRADO ✅
-• PREPARACIÓN (Fase 3 — Monorepo & Git Flow):       [░░░░░░░░░░]   0% (Pendiente) ➔ ESTADO: SIGUIENTE ⏳
-• SPRINT 1 (Vertical Slice Autoritativo):           [░░░░░░░░░░]   0% (Por definir) ➔ ESTADO: PENDIENTE ⏳
+• PREPARACIÓN (Fase 3 — Monorepo & Git Flow):       [██████████] 100% (3/3 Pasos) ➔ ESTADO: CERRADO ✅
+• SPRINT 1 (Vertical Slice Autoritativo):           [███░░░░░░░]  33% (1/3 Tareas) ➔ ESTADO: EN PROGRESO 🟡
 ```
 
 ---
@@ -51,6 +51,22 @@ PROGRESO GLOBAL DEL PROYECTO: [░░░░░░░░░░░░░░░░�
 
 ---
 
-## 📋 PRÓXIMOS BLOQUES (Aprobación Paso a Paso)
-- [ ] **Fase 3 — Cimientos del Monorepo & Git Flow:** `.gitignore`, inicialización Git Flow (previa autorización), workspaces (`/shared`, `/server`, `/client`), `tsconfig.base.json`, ESLint con fronteras de importación, Vitest y `docker-compose.yml` (PostgreSQL).
-- [ ] **Sprint 1 — Vertical Slice Server-Authoritative:** Definir backlog atómico `TSK-XX` tras aprobar Fase 3.
+## 📦 FASE 3 (Pre-Sprint): Cimientos del Monorepo & Git Flow (`TSK-00`)
+* **Meta:** Inicializar Git Flow (`main`, `release`, `develop`), conectar remoto y construir el esqueleto compilable y probado del monorepo (`/shared`, `/server`, `/client`).
+* **Estado:** 🟢 **COMPLETADO & VERIFICADO (`build` ✅ | `lint` ✅ | `test` 6/6 ✅)**
+* **Rama:** `feature/TSK-00-monorepo-scaffold` *(pendiente de autorización de commit/merge a `develop`)*
+
+- [x] **Paso 3.1:** Auditoría de herramientas locales (`node v24.14.1`, `npm 11.11.0`, `git 2.56.1`, `docker 29.8.2`) y creación de `.gitignore`.
+- [x] **Paso 3.2:** Inicialización de Git Flow (`main`, `release`, `develop`), conexión de `origin` y push inicial autorizado.
+- [x] **Paso 3.3:** Esqueleto completo del monorepo (`npm workspaces`, `tsconfig.base.json`, `eslint.config.mjs` con fronteras automáticas, `docker-compose.yml`, `.env.example`, `@starcorsair/shared`, `@starcorsair/server` con Colyseus + Prisma, `@starcorsair/client` con R3F + Tailwind + Zustand).
+
+---
+
+## 🏃‍♂️ SPRINT 1: Vertical Slice Server-Authoritative (Kalabesh)
+* **Meta:** Vuelo 3D multijugador sincronizado con Colyseus, enemigos IA con Target-Lock, combate autoritativo (`1–8`) y drops de crionita/energía.
+* **Estado:** 🟡 **EN PROGRESO (1 / 3 Tareas)**
+* **Puerta Humana (Gate 1):** 🔒 *Bloqueada hasta completar `TSK-03` e inspección local.*
+
+- [x] **`[TSK-01]`** Conexión Colyseus en vivo, nave 3D estilizada (`ShipMesh`), campo estelar puro (`Starfield`), vuelo WASD/Shift predicho + reconciliado con `@starcorsair/shared` e interpolación multijugador (`PlayerController`, `planetClient`).
+- [ ] **`[TSK-02]`** Enemigos IA patrullando Kalabesh, Target-Lock en 3D + Target Frame en HUD, habilidades autoritativas (`1` Bláster con rayos láser, `3` Reparador, `5` Escudo), consumo de energía y cooldowns en `/shared` + `/server`.
+- [ ] **`[TSK-03]`** Drops autoritativos de crionita y orbes de energía al destruir enemigos + habilidad `2` Colector y recarga de energía.

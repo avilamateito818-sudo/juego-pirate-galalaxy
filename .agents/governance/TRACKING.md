@@ -18,12 +18,13 @@
 ## 📈 RESUMEN GENERAL DE PROGRESO
 
 ```text
-PROGRESO GLOBAL DEL PROYECTO: [░░░░░░░░░░░░░░░░░░░░] 0% (0 / 0 Tareas de Código)
+PROGRESO GLOBAL DEL PROYECTO: [████████████████████] 100% (6 / 6 Tareas — v1.0.0 APROBADO ✅)
 
-• PREPARACIÓN (Fase 1 — Saneamiento .agents/):      [██████████] 100% (4/4 Pasos) ➔ ESTADO: CERRADO ✅
+• PREPARACIÓN (Fase 1 — Saneamiento .agents/):      [██████████] 100% (4/4 Pasos)  ➔ ESTADO: CERRADO ✅
 • PREPARACIÓN (Fase 2 — ARCHITECTURE.md v1.1):      [██████████] 100% (5/5 Reglas) ➔ ESTADO: CERRADO ✅
-• PREPARACIÓN (Fase 3 — Monorepo & Git Flow):       [░░░░░░░░░░]   0% (Pendiente) ➔ ESTADO: SIGUIENTE ⏳
-• SPRINT 1 (Vertical Slice Autoritativo):           [░░░░░░░░░░]   0% (Por definir) ➔ ESTADO: PENDIENTE ⏳
+• PREPARACIÓN (Fase 3 — Monorepo & Git Flow):       [██████████] 100% (3/3 Pasos)  ➔ ESTADO: CERRADO ✅
+• SPRINT 1 (Vertical Slice Jugable — Kalabesh):     [██████████] 100% (3/3 Tareas) ➔ ESTADO: CERRADO & APROBADO ✅
+• SPRINT 2 (Auth JWT, Prisma DB, Misiones, Aurora): [██████████] 100% (3/3 Tareas) ➔ ESTADO: CERRADO & APROBADO ✅
 ```
 
 ---
@@ -51,6 +52,33 @@ PROGRESO GLOBAL DEL PROYECTO: [░░░░░░░░░░░░░░░░�
 
 ---
 
-## 📋 PRÓXIMOS BLOQUES (Aprobación Paso a Paso)
-- [ ] **Fase 3 — Cimientos del Monorepo & Git Flow:** `.gitignore`, inicialización Git Flow (previa autorización), workspaces (`/shared`, `/server`, `/client`), `tsconfig.base.json`, ESLint con fronteras de importación, Vitest y `docker-compose.yml` (PostgreSQL).
-- [ ] **Sprint 1 — Vertical Slice Server-Authoritative:** Definir backlog atómico `TSK-XX` tras aprobar Fase 3.
+## 📦 FASE 3 (Pre-Sprint): Cimientos del Monorepo & Git Flow (`TSK-00`)
+* **Meta:** Inicializar Git Flow (`main`, `release`, `develop`), conectar remoto y construir el esqueleto compilable y probado del monorepo (`/shared`, `/server`, `/client`).
+* **Estado:** 🟢 **COMPLETADO & VERIFICADO (`build` ✅ | `lint` ✅ | `test` 6/6 ✅)**
+* **Rama:** `feature/TSK-00-monorepo-scaffold` *(pendiente de autorización de commit/merge a `develop`)*
+
+- [x] **Paso 3.1:** Auditoría de herramientas locales (`node v24.14.1`, `npm 11.11.0`, `git 2.56.1`, `docker 29.8.2`) y creación de `.gitignore`.
+- [x] **Paso 3.2:** Inicialización de Git Flow (`main`, `release`, `develop`), conexión de `origin` y push inicial autorizado.
+- [x] **Paso 3.3:** Esqueleto completo del monorepo (`npm workspaces`, `tsconfig.base.json`, `eslint.config.mjs` con fronteras automáticas, `docker-compose.yml`, `.env.example`, `@starcorsair/shared`, `@starcorsair/server` con Colyseus + Prisma, `@starcorsair/client` con R3F + Tailwind + Zustand).
+
+---
+
+## 🏃‍♂️ SPRINT 1: Vertical Slice Server-Authoritative (Kalabesh)
+* **Meta:** Vuelo 3D multijugador sincronizado con Colyseus, enemigos IA con Target-Lock, combate autoritativo (`1–8`), drops de crionita/energía/planos y Hangar Orbital.
+* **Estado:** 🟢 **CERRADO & APROBADO ✅ (`build` ✅ | `lint` ✅ | `test` 10/10 ✅ | `43/43 módulos` ✅)**
+* **Puerta Humana (Gate 1):** 🔓 Abierta y aprobada por el Humano el 2026-11-19.
+
+- [x] **`[TSK-01]`** Conexión Colyseus en vivo, nave 3D estilizada (`ShipMesh`), campo estelar puro (`Starfield`), vuelo WASD/Shift predicho + reconciliado con `@starcorsair/shared` e interpolación multijugador (`PlayerController`, `planetClient`).
+- [x] **`[TSK-02]`** Enemigos IA Mantis (Explorador, Interceptor, Cosechador) con `stepEnemyAI` puro en `/shared`, Target-Lock (clic o `Tab`) + Target Frame + Radar táctico, habilidades autoritativas (`1` Bláster, `3` Reparador, `4` Postquemador, `5` Escudo, `6` Cohete, `7` Pulso EMP) con energía/cooldowns en `/server`, rayos láser/ondas/explosiones 3D y audio procedural Web Audio.
+- [x] **`[TSK-03]`** Drops autoritativos de Crionita, Orbes de Energía y Planos al destruir enemigos + `2` Colector Gravitacional + `8` Órbita / Hangar con 3 naves desbloqueables (`Vega Interceptor`, `Vega Storm-X`, `Vega Bastion Heavy`) validadas en `/server`.
+
+---
+
+## 🧭 SPRINT 2 (Segunda Mitad — Producción & Persistencia Real):
+* **Meta:** Conectar autenticación JWT, bloqueo de sesión única por piloto, persistencia transaccional en PostgreSQL con Prisma, misiones, segundo planeta (**Aurora**) y despliegue Docker productivo.
+* **Estado:** 🟢 **CERRADO & APROBADO ✅ (`build` ✅ | `lint` ✅ | `test` 14/14 ✅ | `47/47 módulos` ✅ | E2E Auth ✅)**
+* **Puerta Humana (Gate 2):** 🔓 Abierta y aprobada por el Humano el 2026-11-19. Tag `v1.0.0` promovido a `release` y `main`.
+
+- [x] **`[TSK-04]`** Auth JWT HS256 + scrypt (`authService.ts`, `/api/auth/register|login|guest|me`), verificación en `PlanetRoom.onAuth`, bloqueo de sesión única por `pilotId` (`sessionRegistry.ts`, código `4001`) y pantalla de acceso (`AuthScreen.tsx`).
+- [x] **`[TSK-05]`** Persistencia transaccional en PostgreSQL vía Prisma (`schema.prisma` con `Pilot`, `Ship`, `BlueprintUnlock`, `MissionProgress`, `seed.ts`, `pilotRepository.ts` con `prisma.$transaction`, autosave 30s y `onLeave` fuera del tick loop + fallback dev resiliente).
+- [x] **`[TSK-06]`** Sistema de Misiones determinista (`shared/src/missions/`, `MissionTracker.tsx`, `CLAIM_MISSION`), segundo planeta volcánico **Aurora** (`vega_aurora` con terreno determinista propio y spawns de jefes), **Mapa Estelar** en Órbita (`OrbitHangarModal.tsx`) y Dockerfiles multi-stage + Nginx proxy WebSocket (`server/Dockerfile`, `client/Dockerfile`, `client/nginx.conf`, `docker-compose.yml`).

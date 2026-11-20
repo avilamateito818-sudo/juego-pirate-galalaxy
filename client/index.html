@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StarCorsair — MMORPG Combate Espacial</title>
+  </head>
+  <body style="background:#020617;color:#e2e8f0;margin:0;overflow:hidden;font-family:system-ui,sans-serif;" class="bg-slate-950 text-slate-100 overflow-hidden select-none">
+    <div id="root">
+      <div id="boot-fallback" style="display:flex;height:100vh;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center;padding:24px;">
+        <div style="font-size:18px;font-weight:700;color:#38bdf8;">Cargando StarCorsair...</div>
+        <div id="boot-error" style="font-size:13px;color:#94a3b8;max-width:560px;white-space:pre-wrap;"></div>
+      </div>
+    </div>
+    <script>
+      window.addEventListener('error', function (e) {
+        var el = document.getElementById('boot-error');
+        if (el) el.textContent = 'Error de carga: ' + (e.message || String(e.error || 'desconocido'));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var el = document.getElementById('boot-error');
+        if (el) el.textContent = 'Error asíncrono: ' + String(e.reason || 'desconocido');
+      });
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -7,7 +7,7 @@ function getHttpBaseUrl(): string {
     return import.meta.env.VITE_SERVER_HTTP_URL;
   }
   const host = typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1';
-  return `http://${host}:2567`;
+  return `http://${host}:49267`;
 }
 
 export function loadStoredToken(): string | null {

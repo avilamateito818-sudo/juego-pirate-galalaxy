@@ -1,3 +1,5 @@
+name: starcorsair-galaxy
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,9 +10,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-starcorsair_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-starcorsair}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-49543}:5432"
     volumes:
       - starcorsair_pgdata:/var/lib/postgresql/data
+    networks:
+      - starcorsair_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-starcorsair} -d ${POSTGRES_DB:-starcorsair}"]
       interval: 5s
@@ -22,31 +26,39 @@ services:
       context: .
       dockerfile: server/Dockerfile
     container_name: starcorsair-server
-    profiles: ["prod"]
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      SERVER_PORT: 2567
+      SERVER_PORT: 49267
       DATABASE_URL: postgresql://${POSTGRES_USER:-starcorsair}:${POSTGRES_PASSWORD:-starcorsair_dev_password}@postgres:5432/${POSTGRES_DB:-starcorsair}?schema=public
-      JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production-min-32-chars}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      JWT_SECRET: ${JWT_SECRET:-starcorsair-isolated-secret-change-in-production}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://127.0.0.1:49100}
     ports:
-      - "2567:2567"
+      - "${SERVER_PORT:-49267}:49267"
+    networks:
+      - starcorsair_net
 
   client:
     build:
       context: .
       dockerfile: client/Dockerfile
     container_name: starcorsair-client
-    profiles: ["prod"]
     restart: unless-stopped
     depends_on:
       - server
     ports:
-      - "8080:80"
+      - "${CLIENT_PORT:-49100}:80"
+    networks:
+      - starcorsair_net
+
+networks:
+  starcorsair_net:
+    name: starcorsair_net
+    driver: bridge
 
 volumes:
   starcorsair_pgdata:
+    name: starcorsair_pgdata

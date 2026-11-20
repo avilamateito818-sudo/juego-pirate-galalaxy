@@ -54,7 +54,7 @@ export function AuthScreen() {
       setError(
         err instanceof Error
           ? err.message
-          : 'No se pudo conectar al servidor de autenticación (:2567).'
+          : 'No se pudo conectar al servidor de autenticación (:49267).'
       );
     } finally {
       setLoading(false);

@@ -14,11 +14,13 @@ import {
 import { prisma } from './services/prisma.js';
 import { sessionRegistry } from './services/sessionRegistry.js';
 
-const PORT = Number(process.env.SERVER_PORT ?? 2567);
+const PORT = Number(process.env.SERVER_PORT ?? 49267);
 const ALLOWED_ORIGINS = [
-  process.env.CORS_ORIGIN ?? 'http://localhost:5173',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173'
+  process.env.CORS_ORIGIN ?? 'http://127.0.0.1:49173',
+  'http://localhost:49173',
+  'http://127.0.0.1:49173',
+  'http://localhost:49100',
+  'http://127.0.0.1:49100'
 ];
 
 const app = express();

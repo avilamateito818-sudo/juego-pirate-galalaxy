@@ -3,12 +3,15 @@ import type {
   AbilitySlot,
   EnemyArchetype,
   EnemyArchetypeId,
+  EquippedLoadout,
   MissionDefinition,
   MissionId,
   PlanetId,
   ShipModelId,
   ShipModelSpec,
-  ShipMovementConfig
+  ShipMovementConfig,
+  TechModuleId,
+  TechModuleSpec
 } from '../types/index.js';
 
 export const SIMULATION_CONSTANTS = {
@@ -274,6 +277,181 @@ export const ABILITIES: Record<AbilitySlot, AbilityConfig> = {
 
 export const STARTER_BLASTER = ABILITIES[1];
 
+export const DEFAULT_LOADOUT: EquippedLoadout = {
+  1: 'blaster_mk1',
+  3: 'repair_mk1',
+  5: 'shield_mk1',
+  6: 'missile_mk1',
+  7: 'pulse_mk1'
+};
+
+export const TECH_MODULES: Record<TechModuleId, TechModuleSpec> = {
+  blaster_mk1: {
+    id: 'blaster_mk1',
+    slot: 1,
+    tier: 1,
+    name: 'Bláster Iónico Mk-I',
+    shortLabel: 'Bláster I',
+    description: 'Cañón estándar de la flota Vega.',
+    requiredBlueprints: 0,
+    costCryonite: 0,
+    beamColor: '#22d3ee',
+    overrides: {}
+  },
+  blaster_mk2: {
+    id: 'blaster_mk2',
+    slot: 1,
+    tier: 2,
+    name: 'Bláster Plasma Esmeralda Mk-II',
+    shortLabel: 'Bláster II',
+    description: '+35% daño, disparos más rápidos (720ms) y haz esmeralda.',
+    requiredBlueprints: 1,
+    costCryonite: 85,
+    beamColor: '#10b981',
+    overrides: {
+      baseDamage: 33,
+      cooldownMs: 720,
+      range: 56,
+      critChance: 0.18
+    }
+  },
+  blaster_mk3: {
+    id: 'blaster_mk3',
+    slot: 1,
+    tier: 3,
+    name: 'Bláster Solar Aurora Mk-III',
+    shortLabel: 'Bláster III',
+    description: 'Tecnología de élite (+70% daño, haz dorado y 24% crítico).',
+    requiredBlueprints: 2,
+    costCryonite: 190,
+    beamColor: '#facc15',
+    overrides: {
+      baseDamage: 41,
+      cooldownMs: 650,
+      range: 60,
+      energyCost: 5,
+      critChance: 0.24,
+      critMultiplier: 1.65
+    }
+  },
+  repair_mk1: {
+    id: 'repair_mk1',
+    slot: 3,
+    tier: 1,
+    name: 'Droide Reparador Mk-I',
+    shortLabel: 'Repar. I',
+    description: 'Reparación básica de casco (+40).',
+    requiredBlueprints: 0,
+    costCryonite: 0,
+    beamColor: '#34d399',
+    overrides: {}
+  },
+  repair_mk2: {
+    id: 'repair_mk2',
+    slot: 3,
+    tier: 2,
+    name: 'Nano-Droide Reparador Mk-II',
+    shortLabel: 'Repar. II',
+    description: 'Repara +70 de casco con menos enfriamiento (5.0s) y menor energía.',
+    requiredBlueprints: 1,
+    costCryonite: 75,
+    beamColor: '#2dd4bf',
+    overrides: {
+      repairAmount: 70,
+      cooldownMs: 5000,
+      energyCost: 13
+    }
+  },
+  shield_mk1: {
+    id: 'shield_mk1',
+    slot: 5,
+    tier: 1,
+    name: 'Escudo Deflector Mk-I',
+    shortLabel: 'Escudo I',
+    description: 'Restaura +40 puntos de escudo.',
+    requiredBlueprints: 0,
+    costCryonite: 0,
+    beamColor: '#38bdf8',
+    overrides: {}
+  },
+  shield_mk2: {
+    id: 'shield_mk2',
+    slot: 5,
+    tier: 2,
+    name: 'Escudo Cuántico Mk-II',
+    shortLabel: 'Escudo II',
+    description: 'Restaura +75 de escudo cada 5.8s con menor consumo.',
+    requiredBlueprints: 1,
+    costCryonite: 80,
+    beamColor: '#60a5fa',
+    overrides: {
+      shieldRestore: 75,
+      cooldownMs: 5800,
+      energyCost: 12
+    }
+  },
+  missile_mk1: {
+    id: 'missile_mk1',
+    slot: 6,
+    tier: 1,
+    name: 'Cohete de Plasma Mk-I',
+    shortLabel: 'Cohete I',
+    description: 'Proyectil de alto impacto a larga distancia.',
+    requiredBlueprints: 0,
+    costCryonite: 0,
+    beamColor: '#fb923c',
+    overrides: {}
+  },
+  missile_mk2: {
+    id: 'missile_mk2',
+    slot: 6,
+    tier: 2,
+    name: 'Cohete Termobárico Mk-II',
+    shortLabel: 'Cohete II',
+    description: 'Daño devastador (76), alcance 72m y estela carmesí.',
+    requiredBlueprints: 1,
+    costCryonite: 110,
+    beamColor: '#f43f5e',
+    overrides: {
+      baseDamage: 76,
+      range: 72,
+      cooldownMs: 3600,
+      critChance: 0.25
+    }
+  },
+  pulse_mk1: {
+    id: 'pulse_mk1',
+    slot: 7,
+    tier: 1,
+    name: 'Pulso EMP Radial Mk-I',
+    shortLabel: 'Pulso I',
+    description: 'Onda electromagnética estándar en 40m.',
+    requiredBlueprints: 0,
+    costCryonite: 0,
+    beamColor: '#a855f7',
+    overrides: {}
+  },
+  pulse_mk2: {
+    id: 'pulse_mk2',
+    slot: 7,
+    tier: 2,
+    name: 'Onda EMP Sobrecargada Mk-II',
+    shortLabel: 'Pulso II',
+    description: 'Impacta en 48m con 54 de daño y enfriamiento reducido (7.2s).',
+    requiredBlueprints: 1,
+    costCryonite: 125,
+    beamColor: '#e879f9',
+    overrides: {
+      baseDamage: 54,
+      range: 48,
+      cooldownMs: 7200,
+      energyCost: 18
+    }
+  }
+};
+
+export const TECH_MODULE_LIST: readonly TechModuleSpec[] = Object.values(TECH_MODULES);
+
 export const ENEMY_ARCHETYPES: Record<EnemyArchetypeId, EnemyArchetype> = {
   mantis_scout: {
     id: 'mantis_scout',
@@ -288,7 +466,8 @@ export const ENEMY_ARCHETYPES: Record<EnemyArchetypeId, EnemyArchetype> = {
     attackCooldownMs: 1600,
     cryoniteReward: 25,
     energyDropAmount: 28,
-    blueprintDropChance: 0.25,
+    blueprintDropChance: 0.35,
+    dropPool: ['blaster_mk2', 'repair_mk2', 'shield_mk2'],
     hoverHeight: 4.5,
     scale: 0.95,
     color: '#ef4444'
@@ -306,7 +485,8 @@ export const ENEMY_ARCHETYPES: Record<EnemyArchetypeId, EnemyArchetype> = {
     attackCooldownMs: 1400,
     cryoniteReward: 45,
     energyDropAmount: 36,
-    blueprintDropChance: 0.4,
+    blueprintDropChance: 0.48,
+    dropPool: ['blaster_mk2', 'missile_mk2', 'pulse_mk2', 'shield_mk2'],
     hoverHeight: 4.8,
     scale: 1.15,
     color: '#f43f5e'
@@ -324,7 +504,8 @@ export const ENEMY_ARCHETYPES: Record<EnemyArchetypeId, EnemyArchetype> = {
     attackCooldownMs: 1850,
     cryoniteReward: 110,
     energyDropAmount: 60,
-    blueprintDropChance: 0.85,
+    blueprintDropChance: 0.9,
+    dropPool: ['blaster_mk3', 'missile_mk2', 'pulse_mk2'],
     hoverHeight: 5.8,
     scale: 1.75,
     color: '#c026d3'

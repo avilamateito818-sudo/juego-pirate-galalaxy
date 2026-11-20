@@ -1,7 +1,7 @@
 import {
-  ABILITIES,
   HANGAR_SHIPS,
   PLANETS,
+  resolveEffectiveAbility,
   type AbilitySlot
 } from '@starcorsair/shared';
 import { soundEngine } from '../audio/soundEngine';
@@ -44,6 +44,7 @@ export function HudOverlay() {
   const connectionError = useHudStore((s) => s.connectionError);
   const playerCount = useHudStore((s) => s.playerCount);
   const shipModelId = useHudStore((s) => s.shipModelId);
+  const loadout = useHudStore((s) => s.loadout);
   const hull = useHudStore((s) => s.hull);
   const hullMax = useHudStore((s) => s.hullMax);
   const shield = useHudStore((s) => s.shield);
@@ -63,8 +64,8 @@ export function HudOverlay() {
 
   const shipSpec = HANGAR_SHIPS[shipModelId];
   const planet = PLANETS[planetId];
-  const blasterRange = ABILITIES[1].range;
-  const targetInRange = target ? target.distance <= blasterRange : false;
+  const activeBlaster = resolveEffectiveAbility(1, loadout);
+  const targetInRange = target ? target.distance <= activeBlaster.range : false;
 
   const statusColor =
     connectionStatus === 'connected'
@@ -88,7 +89,6 @@ export function HudOverlay() {
     <>
       <div className="pointer-events-none fixed inset-0 flex flex-col justify-between p-4">
         <header className="grid grid-cols-3 items-start gap-4">
-          {/* Izquierda: Piloto + Sector + Misiones */}
           <div className="flex flex-col items-start gap-2">
             <div className="rounded-lg border border-cyan-500/30 bg-slate-950/80 px-4 py-2 backdrop-blur-md">
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-cyan-400">
@@ -134,7 +134,6 @@ export function HudOverlay() {
             <MissionTracker />
           </div>
 
-          {/* Centro: Target Frame o Aviso de Respawn */}
           <div className="flex flex-col items-center">
             {!alive && (
               <div className="rounded-xl border border-rose-500/60 bg-rose-950/90 px-5 py-2.5 text-center backdrop-blur-md">
@@ -195,7 +194,6 @@ export function HudOverlay() {
             )}
           </div>
 
-          {/* Derecha: Recursos + Modo Persistencia + Radar */}
           <div className="flex flex-col items-end gap-2">
             <div className="flex flex-wrap items-center justify-end gap-2.5 rounded-lg border border-slate-700/60 bg-slate-950/80 px-3.5 py-2 text-xs backdrop-blur-md">
               <span className="font-semibold text-amber-400">💎 {cryonite}</span>
@@ -312,7 +310,7 @@ export function HudOverlay() {
 
           <div className="pointer-events-auto flex flex-wrap justify-center gap-2 rounded-xl border border-cyan-500/35 bg-slate-950/90 p-2 backdrop-blur-md">
             {SLOTS.map((slotNum) => {
-              const ability = ABILITIES[slotNum];
+              const ability = resolveEffectiveAbility(slotNum, loadout);
               const cdMs = getSlotCooldown(slotNum, cooldowns);
               const onCooldown = cdMs > 0;
               const lowEnergy = energy < ability.energyCost;
@@ -339,7 +337,17 @@ export function HudOverlay() {
                           : 'border-slate-700 bg-slate-900/95 hover:border-cyan-400 hover:text-cyan-300'
                   }`}
                 >
-                  <span className="text-[10px] font-bold text-cyan-400">{slotNum}</span>
+                  <span className="text-[10px] font-bold text-cyan-400">
+                    {slotNum}
+                    {ability.tier > 1 ? (
+                      <span
+                        className="ml-0.5 text-[8px]"
+                        style={{ color: ability.beamColor }}
+                      >
+                        ★{ability.tier}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="text-[10px] font-medium leading-tight">
                     {ability.shortLabel}
                   </span>

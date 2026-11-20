@@ -5,7 +5,8 @@ import type {
   LootKind,
   MissionId,
   PlanetId,
-  ShipModelId
+  ShipModelId,
+  TechModuleId
 } from '@starcorsair/shared';
 
 export class MissionSchema extends Schema {
@@ -14,6 +15,14 @@ export class MissionSchema extends Schema {
   @type('number') targetCount = 1;
   @type('boolean') completed = false;
   @type('boolean') claimed = false;
+}
+
+export class TechProgressSchema extends Schema {
+  @type('string') blueprintId: TechModuleId = 'blaster_mk1';
+  @type('number') collected = 0;
+  @type('number') required = 0;
+  @type('boolean') unlocked = false;
+  @type('boolean') crafted = false;
 }
 
 /**
@@ -26,6 +35,7 @@ export class ShipSchema extends Schema {
   @type('string') callsign = '';
   @type('string') shipModelId: ShipModelId = 'vega_scout';
   @type('string') ownedShipsCsv = 'vega_scout';
+  @type('string') loadoutJson = '';
   @type('number') x = 0;
   @type('number') y = 0;
   @type('number') z = 0;
@@ -43,7 +53,6 @@ export class ShipSchema extends Schema {
   @type('boolean') inOrbit = false;
   @type('boolean') afterburner = false;
   @type('number') lastProcessedSeq = 0;
-  // Cooldowns autoritativos restantes en ms (0 = listo)
   @type('number') cd1 = 0;
   @type('number') cd2 = 0;
   @type('number') cd3 = 0;
@@ -52,6 +61,7 @@ export class ShipSchema extends Schema {
   @type('number') cd7 = 0;
   @type('number') cd8 = 0;
   @type([MissionSchema]) missions = new ArraySchema<MissionSchema>();
+  @type([TechProgressSchema]) techProgress = new ArraySchema<TechProgressSchema>();
 }
 
 export class EnemySchema extends Schema {
@@ -74,6 +84,7 @@ export class EnemySchema extends Schema {
 export class LootDropSchema extends Schema {
   @type('string') id = '';
   @type('string') kind: LootKind = 'cryonite';
+  @type('string') blueprintId = '';
   @type('number') amount = 0;
   @type('string') label = '';
   @type('number') x = 0;

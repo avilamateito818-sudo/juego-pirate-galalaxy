@@ -1,13 +1,21 @@
 import crypto from 'node:crypto';
 import {
+  DEFAULT_LOADOUT,
   HANGAR_SHIPS,
   MISSIONS,
+  TECH_MODULES,
+  canCraftOrEquipTech,
   createInitialMissions,
+  createInitialTechProgress,
+  sanitizeLoadout,
   type AuthPilotProfile,
+  type BlueprintProgress,
+  type EquippedLoadout,
   type MissionId,
   type MissionProgressState,
   type PlanetId,
-  type ShipModelId
+  type ShipModelId,
+  type TechModuleId
 } from '@starcorsair/shared';
 import { hashPassword, verifyPassword } from './authService.js';
 import { prisma } from './prisma.js';
@@ -20,11 +28,20 @@ export interface PilotSnapshotUpdate {
   kills: number;
   activePlanet: PlanetId;
   activeShipModelId: ShipModelId;
+  loadout: EquippedLoadout;
+  techProgress: readonly BlueprintProgress[];
   missions: readonly MissionProgressState[];
 }
 
 export interface PurchaseShipResult {
   ok: boolean;
+  error?: string;
+  profile?: AuthPilotProfile;
+}
+
+export interface CraftTechResult {
+  ok: boolean;
+  action?: 'equip' | 'craft_and_equip';
   error?: string;
   profile?: AuthPilotProfile;
 }
@@ -51,6 +68,11 @@ export interface PilotRepository {
     shipModelId: ShipModelId,
     currentCryonite: number
   ): Promise<PurchaseShipResult>;
+  craftOrEquipTech(
+    pilotId: string,
+    techId: TechModuleId,
+    currentSnapshot: PilotSnapshotUpdate
+  ): Promise<CraftTechResult>;
   claimMission(
     pilotId: string,
     missionId: MissionId,
@@ -64,6 +86,15 @@ function isValidPlanetId(value: string): value is PlanetId {
 
 function isValidShipId(value: string): value is ShipModelId {
   return value in HANGAR_SHIPS;
+}
+
+function parseLoadout(json: string): EquippedLoadout {
+  if (!json) return { ...DEFAULT_LOADOUT };
+  try {
+    return sanitizeLoadout(JSON.parse(json));
+  } catch {
+    return { ...DEFAULT_LOADOUT };
+  }
 }
 
 function mergeMissions(
@@ -89,6 +120,29 @@ function mergeMissions(
   });
 }
 
+function mergeTechProgress(
+  existing: ReadonlyArray<{
+    blueprintId: string;
+    collected: number;
+    required: number;
+    unlocked: boolean;
+    crafted: boolean;
+  }>
+): BlueprintProgress[] {
+  const byId = new Map(existing.map((t) => [t.blueprintId, t]));
+  return createInitialTechProgress().map((base) => {
+    const found = byId.get(base.blueprintId);
+    if (!found) return base;
+    return {
+      blueprintId: base.blueprintId,
+      collected: Math.max(base.collected, found.collected),
+      required: base.required,
+      unlocked: base.unlocked || found.unlocked,
+      crafted: base.crafted || found.crafted
+    };
+  });
+}
+
 class PrismaPilotRepository implements PilotRepository {
   public readonly mode: PersistenceMode = 'postgresql';
 
@@ -101,6 +155,7 @@ class PrismaPilotRepository implements PilotRepository {
     const cleanCallsign = callsign.trim().slice(0, 24);
     const starter = HANGAR_SHIPS.vega_scout;
     const initialMissions = createInitialMissions();
+    const initialTech = createInitialTechProgress();
 
     const created = await prisma.pilot.create({
       data: {
@@ -109,6 +164,7 @@ class PrismaPilotRepository implements PilotRepository {
         passwordHash: hashPassword(password),
         activePlanet: 'vega_kalabesh',
         activeShipModelId: starter.id,
+        loadoutJson: JSON.stringify(DEFAULT_LOADOUT),
         ships: {
           create: {
             shipModelId: starter.id,
@@ -116,6 +172,15 @@ class PrismaPilotRepository implements PilotRepository {
             hullMax: starter.hullMax,
             shieldMax: starter.shieldMax
           }
+        },
+        blueprintUnlocks: {
+          create: initialTech.map((t) => ({
+            blueprintId: t.blueprintId,
+            collected: t.collected,
+            required: t.required,
+            unlocked: t.unlocked,
+            crafted: t.crafted
+          }))
         },
         missions: {
           create: initialMissions.map((m) => ({
@@ -127,7 +192,7 @@ class PrismaPilotRepository implements PilotRepository {
           }))
         }
       },
-      include: { ships: true, missions: true }
+      include: { ships: true, missions: true, blueprintUnlocks: true }
     });
 
     return this.toProfile(created);
@@ -139,7 +204,7 @@ class PrismaPilotRepository implements PilotRepository {
   ): Promise<AuthPilotProfile | null> {
     const found = await prisma.pilot.findUnique({
       where: { email: email.trim().toLowerCase() },
-      include: { ships: true, missions: true }
+      include: { ships: true, missions: true, blueprintUnlocks: true }
     });
     if (!found) return null;
     if (!verifyPassword(password, found.passwordHash)) return null;
@@ -160,7 +225,7 @@ class PrismaPilotRepository implements PilotRepository {
   public async getById(pilotId: string): Promise<AuthPilotProfile | null> {
     const found = await prisma.pilot.findUnique({
       where: { id: pilotId },
-      include: { ships: true, missions: true }
+      include: { ships: true, missions: true, blueprintUnlocks: true }
     });
     return found ? this.toProfile(found) : null;
   }
@@ -177,7 +242,8 @@ class PrismaPilotRepository implements PilotRepository {
           blueprints: update.blueprints,
           kills: update.kills,
           activePlanet: update.activePlanet,
-          activeShipModelId: update.activeShipModelId
+          activeShipModelId: update.activeShipModelId,
+          loadoutJson: JSON.stringify(update.loadout)
         }
       });
 
@@ -201,6 +267,27 @@ class PrismaPilotRepository implements PilotRepository {
           }
         });
       }
+
+      for (const t of update.techProgress) {
+        await tx.blueprintUnlock.upsert({
+          where: {
+            pilotId_blueprintId: { pilotId, blueprintId: t.blueprintId }
+          },
+          update: {
+            collected: t.collected,
+            unlocked: t.unlocked,
+            crafted: t.crafted
+          },
+          create: {
+            pilotId,
+            blueprintId: t.blueprintId,
+            collected: t.collected,
+            required: t.required,
+            unlocked: t.unlocked,
+            crafted: t.crafted
+          }
+        });
+      }
     });
   }
 
@@ -214,7 +301,7 @@ class PrismaPilotRepository implements PilotRepository {
     return prisma.$transaction(async (tx) => {
       const pilot = await tx.pilot.findUnique({
         where: { id: pilotId },
-        include: { ships: true, missions: true }
+        include: { ships: true, missions: true, blueprintUnlocks: true }
       });
       if (!pilot) return { ok: false, error: 'Piloto no encontrado.' };
 
@@ -256,10 +343,70 @@ class PrismaPilotRepository implements PilotRepository {
           cryonite: nextCryonite,
           activeShipModelId: shipModelId
         },
-        include: { ships: true, missions: true }
+        include: { ships: true, missions: true, blueprintUnlocks: true }
       });
 
       return { ok: true, profile: this.toProfile(updated) };
+    });
+  }
+
+  public async craftOrEquipTech(
+    pilotId: string,
+    techId: TechModuleId,
+    currentSnapshot: PilotSnapshotUpdate
+  ): Promise<CraftTechResult> {
+    const check = canCraftOrEquipTech(
+      currentSnapshot.techProgress,
+      techId,
+      currentSnapshot.cryonite
+    );
+    if (!check.ok) {
+      const msg =
+        check.reason === 'locked'
+          ? 'Tecnología bloqueada: recoge sus planos de los enemigos Mantis.'
+          : check.reason === 'cryonite'
+            ? `Crionita insuficiente (necesitas ${TECH_MODULES[techId].costCryonite}).`
+            : 'Tecnología inválida.';
+      return { ok: false, error: msg };
+    }
+
+    const spec = TECH_MODULES[techId];
+    const nextLoadout: EquippedLoadout = {
+      ...currentSnapshot.loadout,
+      [spec.slot]: techId
+    };
+    const nextCryonite = currentSnapshot.cryonite - check.cost;
+
+    return prisma.$transaction(async (tx) => {
+      await tx.blueprintUnlock.upsert({
+        where: { pilotId_blueprintId: { pilotId, blueprintId: techId } },
+        update: {
+          collected: spec.requiredBlueprints,
+          unlocked: true,
+          crafted: true
+        },
+        create: {
+          pilotId,
+          blueprintId: techId,
+          collected: spec.requiredBlueprints,
+          required: spec.requiredBlueprints,
+          unlocked: true,
+          crafted: true
+        }
+      });
+
+      const updated = await tx.pilot.update({
+        where: { id: pilotId },
+        data: {
+          cryonite: nextCryonite,
+          blueprints: currentSnapshot.blueprints,
+          kills: currentSnapshot.kills,
+          loadoutJson: JSON.stringify(nextLoadout)
+        },
+        include: { ships: true, missions: true, blueprintUnlocks: true }
+      });
+
+      return { ok: true, action: check.action, profile: this.toProfile(updated) };
     });
   }
 
@@ -286,7 +433,7 @@ class PrismaPilotRepository implements PilotRepository {
           activePlanet: currentSnapshot.activePlanet,
           activeShipModelId: currentSnapshot.activeShipModelId
         },
-        include: { ships: true, missions: true }
+        include: { ships: true, missions: true, blueprintUnlocks: true }
       });
 
       await tx.missionProgress.upsert({
@@ -308,7 +455,7 @@ class PrismaPilotRepository implements PilotRepository {
 
       const refreshed = await tx.pilot.findUnique({
         where: { id: updated.id },
-        include: { ships: true, missions: true }
+        include: { ships: true, missions: true, blueprintUnlocks: true }
       });
       if (!refreshed) return { ok: false, error: 'Error al recargar piloto.' };
       return { ok: true, profile: this.toProfile(refreshed) };
@@ -324,7 +471,15 @@ class PrismaPilotRepository implements PilotRepository {
     kills: number;
     activePlanet: string;
     activeShipModelId: string;
+    loadoutJson: string;
     ships: Array<{ shipModelId: string }>;
+    blueprintUnlocks: Array<{
+      blueprintId: string;
+      collected: number;
+      required: number;
+      unlocked: boolean;
+      crafted: boolean;
+    }>;
     missions: Array<{
       missionId: string;
       progress: number;
@@ -351,6 +506,8 @@ class PrismaPilotRepository implements PilotRepository {
         ? record.activeShipModelId
         : 'vega_scout',
       ownedShips: owned.length > 0 ? owned : ['vega_scout'],
+      loadout: parseLoadout(record.loadoutJson),
+      techProgress: mergeTechProgress(record.blueprintUnlocks),
       missions: mergeMissions(record.missions)
     };
   }
@@ -367,6 +524,8 @@ interface MemoryPilotRecord {
   activePlanet: PlanetId;
   activeShipModelId: ShipModelId;
   ownedShips: Set<ShipModelId>;
+  loadout: EquippedLoadout;
+  techProgress: BlueprintProgress[];
   missions: MissionProgressState[];
 }
 
@@ -402,6 +561,8 @@ export class InMemoryPilotRepository implements PilotRepository {
       activePlanet: 'vega_kalabesh',
       activeShipModelId: 'vega_scout',
       ownedShips: new Set<ShipModelId>(['vega_scout']),
+      loadout: { ...DEFAULT_LOADOUT },
+      techProgress: createInitialTechProgress(),
       missions: createInitialMissions()
     };
 
@@ -448,6 +609,8 @@ export class InMemoryPilotRepository implements PilotRepository {
     record.kills = update.kills;
     record.activePlanet = update.activePlanet;
     record.activeShipModelId = update.activeShipModelId;
+    record.loadout = { ...update.loadout };
+    record.techProgress = [...update.techProgress];
     record.missions = [...update.missions];
   }
 
@@ -477,6 +640,41 @@ export class InMemoryPilotRepository implements PilotRepository {
     return { ok: true, profile: this.toProfile(record) };
   }
 
+  public async craftOrEquipTech(
+    pilotId: string,
+    techId: TechModuleId,
+    currentSnapshot: PilotSnapshotUpdate
+  ): Promise<CraftTechResult> {
+    const record = this.byId.get(pilotId);
+    if (!record) return { ok: false, error: 'Piloto no encontrado.' };
+
+    const check = canCraftOrEquipTech(
+      currentSnapshot.techProgress,
+      techId,
+      currentSnapshot.cryonite
+    );
+    if (!check.ok) {
+      const msg =
+        check.reason === 'locked'
+          ? 'Tecnología bloqueada: recoge sus planos de los enemigos Mantis.'
+          : check.reason === 'cryonite'
+            ? `Crionita insuficiente (necesitas ${TECH_MODULES[techId].costCryonite}).`
+            : 'Tecnología inválida.';
+      return { ok: false, error: msg };
+    }
+
+    const spec = TECH_MODULES[techId];
+    record.cryonite = currentSnapshot.cryonite - check.cost;
+    record.blueprints = currentSnapshot.blueprints;
+    record.kills = currentSnapshot.kills;
+    record.loadout = { ...currentSnapshot.loadout, [spec.slot]: techId };
+    record.techProgress = currentSnapshot.techProgress.map((t) =>
+      t.blueprintId === techId ? { ...t, unlocked: true, crafted: true } : t
+    );
+
+    return { ok: true, action: check.action, profile: this.toProfile(record) };
+  }
+
   public async claimMission(
     pilotId: string,
     missionId: MissionId,
@@ -500,6 +698,8 @@ export class InMemoryPilotRepository implements PilotRepository {
     record.kills = currentSnapshot.kills;
     record.activePlanet = currentSnapshot.activePlanet;
     record.activeShipModelId = currentSnapshot.activeShipModelId;
+    record.loadout = { ...currentSnapshot.loadout };
+    record.techProgress = [...currentSnapshot.techProgress];
     record.missions = updatedMissions;
 
     return { ok: true, profile: this.toProfile(record) };
@@ -516,6 +716,8 @@ export class InMemoryPilotRepository implements PilotRepository {
       activePlanet: r.activePlanet,
       activeShipModelId: r.activeShipModelId,
       ownedShips: Array.from(r.ownedShips),
+      loadout: { ...r.loadout },
+      techProgress: [...r.techProgress],
       missions: [...r.missions]
     };
   }

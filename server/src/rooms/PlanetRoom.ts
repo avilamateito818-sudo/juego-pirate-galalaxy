@@ -1,6 +1,6 @@
 import { Room, ServerError, type Client } from 'colyseus';
 import {
-  ABILITIES,
+  DEFAULT_LOADOUT,
   ENEMY_ARCHETYPES,
   ENERGY_CONSTANTS,
   HANGAR_SHIPS,
@@ -8,32 +8,42 @@ import {
   NETWORK_MESSAGES,
   PLANETS,
   SIMULATION_CONSTANTS,
+  TECH_MODULES,
+  addBlueprintPiece,
   advanceMissions,
   canCastAbility,
   createInitialMissions,
+  createInitialTechProgress,
   distanceXZ,
   getTerrainHeight,
+  isValidTechModuleId,
+  pickBlueprintDrop,
   regenEnergy,
   resolveDamage,
+  resolveEffectiveAbility,
   resolveRepair,
   resolveShieldRestore,
   stepEnemyAI,
   stepShipMovement,
   type AbilitySlot,
+  type BlueprintProgress,
   type CombatEvent,
   type EnemyArchetypeId,
+  type EquippedLoadout,
   type MissionId,
   type MissionProgressState,
   type MovementInput,
   type PlanetId,
-  type ShipModelId
+  type ShipModelId,
+  type TechModuleId
 } from '@starcorsair/shared';
 import {
   EnemySchema,
   LootDropSchema,
   MissionSchema,
   PlanetRoomState,
-  ShipSchema
+  ShipSchema,
+  TechProgressSchema
 } from '../schemas/PlanetState.js';
 import { verifyPilotJwt } from '../services/authService.js';
 import { getPilotRepository } from '../services/pilotRepository.js';
@@ -52,6 +62,8 @@ interface PlayerRuntime {
   pilotId: string;
   cooldownUntil: Partial<Record<AbilitySlot, number>>;
   ownedShips: Set<ShipModelId>;
+  loadout: EquippedLoadout;
+  techProgress: BlueprintProgress[];
   missions: MissionProgressState[];
   dirty: boolean;
   respawnAtMs: number;
@@ -183,7 +195,6 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     this.spawnInitialEnemies();
     this.registerMessageHandlers();
 
-    // Bucle autoritativo por tick fijo (ARCHITECTURE.md Regla 4 y Regla 9: cero Prisma aquí)
     this.setSimulationInterval((deltaMs) => {
       const clampedMs = Math.min(deltaMs, SIMULATION_CONSTANTS.MAX_DELTA_MS);
       this.accumulatorSeconds += clampedMs / 1000;
@@ -195,7 +206,6 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       }
     }, 1000 / SIMULATION_CONSTANTS.TICK_RATE_HZ);
 
-    // Autosave periódico asíncrono fuera del tick loop (ARCHITECTURE.md Regla 9)
     this.autosaveTimer = setInterval(() => {
       void this.flushDirtyPilots();
     }, SIMULATION_CONSTANTS.AUTOSAVE_INTERVAL_MS);
@@ -208,7 +218,6 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       return;
     }
 
-    // Lock de sesión única por pilotId (ARCHITECTURE.md Regla 10)
     await sessionRegistry.claimSession(auth.pilotId, {
       sessionId: client.sessionId,
       roomId: this.roomId,
@@ -223,6 +232,15 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     const activeShipId: ShipModelId = profile?.activeShipModelId ?? 'vega_scout';
     const shipSpec = HANGAR_SHIPS[activeShipId];
     const planet = PLANETS[this.state.planetId];
+    const loadout: EquippedLoadout = profile?.loadout
+      ? { ...profile.loadout }
+      : { ...DEFAULT_LOADOUT };
+    const techProgress = profile?.techProgress
+      ? [...profile.techProgress]
+      : createInitialTechProgress();
+    const missions = profile?.missions
+      ? [...profile.missions]
+      : createInitialMissions();
 
     const ship = new ShipSchema();
     ship.id = client.sessionId;
@@ -230,6 +248,7 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     ship.callsign = profile?.callsign ?? auth.callsign;
     ship.shipModelId = shipSpec.id;
     ship.ownedShipsCsv = (profile?.ownedShips ?? ['vega_scout']).join(',');
+    ship.loadoutJson = JSON.stringify(loadout);
     ship.hull = shipSpec.hullMax;
     ship.hullMax = shipSpec.hullMax;
     ship.shield = shipSpec.shieldMax;
@@ -247,10 +266,8 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     ship.alive = true;
     ship.inOrbit = false;
 
-    const missions = profile?.missions
-      ? [...profile.missions]
-      : createInitialMissions();
     this.syncMissionsToSchema(ship, missions);
+    this.syncTechToSchema(ship, techProgress);
 
     this.state.ships.set(client.sessionId, ship);
     this.inputQueues.set(client.sessionId, []);
@@ -258,8 +275,10 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       pilotId: auth.pilotId,
       cooldownUntil: {},
       ownedShips: new Set<ShipModelId>(profile?.ownedShips ?? ['vega_scout']),
+      loadout,
+      techProgress,
       missions,
-      dirty: true, // Actualiza activePlanet
+      dirty: true,
       respawnAtMs: 0,
       lastAfterburnerAtMs: 0,
       messageCountWindow: 0,
@@ -299,6 +318,8 @@ export class PlanetRoom extends Room<PlanetRoomState> {
         kills: ship.kills,
         activePlanet: this.state.planetId,
         activeShipModelId: ship.shipModelId,
+        loadout: rt.loadout,
+        techProgress: rt.techProgress,
         missions: rt.missions
       });
     } catch (err) {
@@ -383,6 +404,17 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       if (!isValidShipModelId(candidate.shipModelId)) return;
 
       void this.handleBuyOrEquipShip(client, candidate.shipModelId);
+    });
+
+    this.onMessage(NETWORK_MESSAGES.CRAFT_OR_EQUIP_TECH, (client, payload: unknown) => {
+      if (!this.checkRateLimit(client.sessionId)) return;
+      if (typeof payload !== 'object' || payload === null) return;
+      const candidate = payload as Record<string, unknown>;
+      if (typeof candidate.techId !== 'string' || !isValidTechModuleId(candidate.techId)) {
+        return;
+      }
+
+      void this.handleCraftOrEquipTech(client, candidate.techId);
     });
 
     this.onMessage(NETWORK_MESSAGES.CLAIM_MISSION, (client, payload: unknown) => {
@@ -638,7 +670,7 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     const rt = this.playerRuntime.get(client.sessionId);
     if (!ship || !rt) return;
 
-    const ability = ABILITIES[slot];
+    const ability = resolveEffectiveAbility(slot, rt.loadout);
     if (ability.id === 'afterburner') return;
 
     if (explicitTargetId) {
@@ -721,7 +753,7 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           amount: dmg.finalDamage,
           isCrit: dmg.isCrit,
           isEnemy: false,
-          color: ability.id === 'missile' ? '#fb923c' : '#22d3ee'
+          color: ability.beamColor
         });
 
         if (dmg.destroyed) {
@@ -734,7 +766,8 @@ export class PlanetRoom extends Room<PlanetRoomState> {
         let collectedCount = 0;
         let cryoniteGained = 0;
         let energyGained = 0;
-        let blueprintsGained = 0;
+        const unlockedNames: string[] = [];
+        const blueprintNames: string[] = [];
 
         for (const [dropId, drop] of Array.from(this.state.drops.entries())) {
           const d = distanceXZ(ship.x, ship.z, drop.x, drop.z);
@@ -749,14 +782,22 @@ export class PlanetRoom extends Room<PlanetRoomState> {
               energyGained += Math.round(ship.energy - before);
             } else if (drop.kind === 'blueprint') {
               ship.blueprints += drop.amount;
-              blueprintsGained += drop.amount;
+              if (drop.blueprintId && isValidTechModuleId(drop.blueprintId)) {
+                const techSpec = TECH_MODULES[drop.blueprintId];
+                blueprintNames.push(techSpec.shortLabel);
+                const updated = addBlueprintPiece(rt.techProgress, drop.blueprintId);
+                rt.techProgress = updated.next;
+                if (updated.unlockedNow) {
+                  unlockedNames.push(techSpec.name);
+                }
+              }
             }
             this.state.drops.delete(dropId);
             this.dropRuntime.delete(dropId);
           }
         }
 
-        if (cryoniteGained > 0 || blueprintsGained > 0) {
+        if (cryoniteGained > 0 || blueprintNames.length > 0) {
           rt.dirty = true;
           if (cryoniteGained > 0) {
             rt.missions = advanceMissions(rt.missions, {
@@ -766,14 +807,23 @@ export class PlanetRoom extends Room<PlanetRoomState> {
             });
             this.syncMissionsToSchema(ship, rt.missions);
           }
-          // Persistencia asíncrona fuera del tick loop para botín económico (Regla 9)
+          if (blueprintNames.length > 0) {
+            this.syncTechToSchema(ship, rt.techProgress);
+          }
           void this.persistPilotBySession(ship.id);
         }
 
         const parts: string[] = [];
         if (cryoniteGained > 0) parts.push(`+${cryoniteGained} Crionita`);
         if (energyGained > 0) parts.push(`+${energyGained} Energía`);
-        if (blueprintsGained > 0) parts.push(`+${blueprintsGained} Plano`);
+        if (blueprintNames.length > 0) {
+          parts.push(`Plano: ${blueprintNames.join(', ')}`);
+        }
+
+        const unlockedBanner =
+          unlockedNames.length > 0
+            ? ` ★ DESBLOQUEADO: ${unlockedNames.join(', ')} (instálalo en Órbita [8])`
+            : '';
 
         this.emitCombatEvent({
           kind: 'loot_collected',
@@ -785,7 +835,7 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           color: '#facc15',
           message:
             collectedCount > 0
-              ? `Colector: ${parts.join(' • ')}`
+              ? `Colector: ${parts.join(' • ')}${unlockedBanner}`
               : 'Colector activado: sin botín dentro de 38m.'
         });
         break;
@@ -801,8 +851,8 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           fromY: ship.y,
           fromZ: ship.z,
           amount: res.repaired,
-          color: '#34d399',
-          message: `Droide Reparador: +${res.repaired} Casco`
+          color: ability.beamColor,
+          message: `${ability.name}: +${res.repaired} Casco`
         });
         break;
       }
@@ -821,8 +871,8 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           fromY: ship.y,
           fromZ: ship.z,
           amount: res.restored,
-          color: '#38bdf8',
-          message: `Escudo Deflector: +${res.restored} Escudo`
+          color: ability.beamColor,
+          message: `${ability.name}: +${res.restored} Escudo`
         });
         break;
       }
@@ -858,8 +908,8 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           fromY: ship.y,
           fromZ: ship.z,
           amount: hitCount,
-          color: '#a855f7',
-          message: `Pulso EMP impactó ${hitCount} objetivo(s)`
+          color: ability.beamColor,
+          message: `${ability.name} impactó ${hitCount} objetivo(s)`
         });
         break;
       }
@@ -881,7 +931,7 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           fromZ: ship.z,
           color: '#38bdf8',
           message: ship.inOrbit
-            ? `En Órbita de ${PLANETS[this.state.planetId].name} — Hangar y Mapa Estelar disponibles.`
+            ? `En Órbita de ${PLANETS[this.state.planetId].name} — Hangar, Tecnología y Mapa Estelar disponibles.`
             : `Descenso completo sobre ${PLANETS[this.state.planetId].name}.`
         });
         break;
@@ -941,7 +991,16 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     );
 
     if (Math.random() < archetype.blueprintDropChance) {
-      this.spawnDrop('blueprint', 1, 'Plano Tecnológico Vega', enemy.x, enemy.z - 2.8);
+      const techId = pickBlueprintDrop(archetype.dropPool, Math.random());
+      const techSpec = TECH_MODULES[techId];
+      this.spawnDrop(
+        'blueprint',
+        1,
+        `Plano: ${techSpec.shortLabel}`,
+        enemy.x,
+        enemy.z - 2.8,
+        techId
+      );
     }
   }
 
@@ -950,12 +1009,14 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     amount: number,
     label: string,
     x: number,
-    z: number
+    z: number,
+    blueprintId = ''
   ): void {
     const id = `drop-${this.dropSeq++}`;
     const drop = new LootDropSchema();
     drop.id = id;
     drop.kind = kind;
+    drop.blueprintId = blueprintId;
     drop.amount = amount;
     drop.label = label;
     drop.x = x;
@@ -1027,6 +1088,71 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     } satisfies CombatEvent);
   }
 
+  private async handleCraftOrEquipTech(
+    client: Client,
+    techId: TechModuleId
+  ): Promise<void> {
+    const ship = this.state.ships.get(client.sessionId);
+    const rt = this.playerRuntime.get(client.sessionId);
+    if (!ship || !rt) return;
+
+    if (!ship.inOrbit) {
+      client.send(NETWORK_MESSAGES.COMBAT_EVENT, {
+        kind: 'ability_rejected',
+        sourceId: ship.id,
+        fromX: ship.x,
+        fromY: ship.y,
+        fromZ: ship.z,
+        message: 'Sube a Órbita [8] para fabricar o instalar tecnología.'
+      } satisfies CombatEvent);
+      return;
+    }
+
+    const result = await getPilotRepository().craftOrEquipTech(rt.pilotId, techId, {
+      cryonite: ship.cryonite,
+      blueprints: ship.blueprints,
+      kills: ship.kills,
+      activePlanet: this.state.planetId,
+      activeShipModelId: ship.shipModelId,
+      loadout: rt.loadout,
+      techProgress: rt.techProgress,
+      missions: rt.missions
+    });
+
+    if (!result.ok || !result.profile) {
+      client.send(NETWORK_MESSAGES.COMBAT_EVENT, {
+        kind: 'ability_rejected',
+        sourceId: ship.id,
+        fromX: ship.x,
+        fromY: ship.y,
+        fromZ: ship.z,
+        message: result.error ?? 'No se pudo instalar la tecnología.'
+      } satisfies CombatEvent);
+      return;
+    }
+
+    const spec = TECH_MODULES[techId];
+    ship.cryonite = result.profile.cryonite;
+    rt.loadout = { ...result.profile.loadout };
+    rt.techProgress = [...result.profile.techProgress];
+    rt.dirty = false;
+    ship.loadoutJson = JSON.stringify(rt.loadout);
+    this.syncTechToSchema(ship, rt.techProgress);
+
+    client.send(NETWORK_MESSAGES.COMBAT_EVENT, {
+      kind: 'mission_claimed',
+      sourceId: ship.id,
+      fromX: ship.x,
+      fromY: ship.y,
+      fromZ: ship.z,
+      color: spec.beamColor,
+      message:
+        result.action === 'craft_and_equip'
+          ? `Tecnología fabricada e instalada en Slot [${spec.slot}]: ${spec.name}`
+          : `Instalado en Slot [${spec.slot}]: ${spec.name}`
+    } satisfies CombatEvent);
+  }
+
   private async handleClaimMission(
     client: Client,
     missionId: MissionId
@@ -1041,6 +1167,8 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       kills: ship.kills,
       activePlanet: this.state.planetId,
       activeShipModelId: ship.shipModelId,
+      loadout: rt.loadout,
+      techProgress: rt.techProgress,
       missions: rt.missions
     });
 
@@ -1089,6 +1217,22 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       item.completed = m.completed;
       item.claimed = m.claimed;
       ship.missions.push(item);
+    }
+  }
+
+  private syncTechToSchema(
+    ship: ShipSchema,
+    techProgress: readonly BlueprintProgress[]
+  ): void {
+    ship.techProgress.clear();
+    for (const t of techProgress) {
+      const item = new TechProgressSchema();
+      item.blueprintId = t.blueprintId;
+      item.collected = t.collected;
+      item.required = t.required;
+      item.unlocked = t.unlocked;
+      item.crafted = t.crafted;
+      ship.techProgress.push(item);
     }
   }
 

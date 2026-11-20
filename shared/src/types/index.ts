@@ -4,6 +4,21 @@ export type ShipModelId = 'vega_scout' | 'vega_storm' | 'vega_tank';
 
 export type AbilitySlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
+export type EquipableSlot = 1 | 3 | 5 | 6 | 7;
+
+export type TechModuleId =
+  | 'blaster_mk1'
+  | 'blaster_mk2'
+  | 'blaster_mk3'
+  | 'repair_mk1'
+  | 'repair_mk2'
+  | 'shield_mk1'
+  | 'shield_mk2'
+  | 'missile_mk1'
+  | 'missile_mk2'
+  | 'pulse_mk1'
+  | 'pulse_mk2';
+
 export type AbilityId =
   | 'blaster'
   | 'collector'
@@ -65,6 +80,10 @@ export interface BuyShipInput {
   readonly shipModelId: ShipModelId;
 }
 
+export interface CraftOrEquipTechInput {
+  readonly techId: TechModuleId;
+}
+
 export interface ClaimMissionInput {
   readonly missionId: MissionId;
 }
@@ -112,6 +131,47 @@ export interface AbilityConfig {
   readonly critMultiplier: number;
 }
 
+export interface TechModuleSpec {
+  readonly id: TechModuleId;
+  readonly slot: EquipableSlot;
+  readonly tier: 1 | 2 | 3;
+  readonly name: string;
+  readonly shortLabel: string;
+  readonly description: string;
+  readonly requiredBlueprints: number;
+  readonly costCryonite: number;
+  readonly beamColor: string;
+  readonly overrides: Partial<
+    Pick<
+      AbilityConfig,
+      | 'range'
+      | 'energyCost'
+      | 'cooldownMs'
+      | 'baseDamage'
+      | 'repairAmount'
+      | 'shieldRestore'
+      | 'critChance'
+      | 'critMultiplier'
+    >
+  >;
+}
+
+export type EquippedLoadout = Record<EquipableSlot, TechModuleId>;
+
+export interface BlueprintProgress {
+  readonly blueprintId: TechModuleId;
+  readonly collected: number;
+  readonly required: number;
+  readonly unlocked: boolean;
+  readonly crafted: boolean;
+}
+
+export interface EffectiveAbilityConfig extends AbilityConfig {
+  readonly techId?: TechModuleId;
+  readonly tier: 1 | 2 | 3;
+  readonly beamColor: string;
+}
+
 export interface EnemyArchetype {
   readonly id: EnemyArchetypeId;
   readonly name: string;
@@ -126,6 +186,7 @@ export interface EnemyArchetype {
   readonly cryoniteReward: number;
   readonly energyDropAmount: number;
   readonly blueprintDropChance: number;
+  readonly dropPool: readonly TechModuleId[];
   readonly hoverHeight: number;
   readonly scale: number;
   readonly color: string;
@@ -161,6 +222,8 @@ export interface AuthPilotProfile {
   readonly activePlanet: PlanetId;
   readonly activeShipModelId: ShipModelId;
   readonly ownedShips: readonly ShipModelId[];
+  readonly loadout: EquippedLoadout;
+  readonly techProgress: readonly BlueprintProgress[];
   readonly missions: readonly MissionProgressState[];
 }
 
@@ -244,6 +307,7 @@ export const NETWORK_MESSAGES = {
   SELECT_TARGET: 'select_target',
   CAST_ABILITY: 'cast_ability',
   BUY_SHIP: 'buy_ship',
+  CRAFT_OR_EQUIP_TECH: 'craft_or_equip_tech',
   CLAIM_MISSION: 'claim_mission',
   COMBAT_EVENT: 'combat_event'
 } as const;

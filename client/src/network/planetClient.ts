@@ -1,23 +1,28 @@
 import { Client, type Room } from 'colyseus.js';
 import {
+  DEFAULT_LOADOUT,
   HANGAR_SHIPS,
   NETWORK_MESSAGES,
   PLANETS,
   SIMULATION_CONSTANTS,
   distanceXZ,
   getTerrainHeight,
+  sanitizeLoadout,
   stepShipMovement,
   type AbilitySlot,
+  type BlueprintProgress,
   type CombatEvent,
   type EnemyAiState,
   type EnemyArchetypeId,
+  type EquippedLoadout,
   type LootKind,
   type MissionId,
   type MissionProgressState,
   type MovementInput,
   type PlanetId,
   type ShipModelId,
-  type ShipTransform
+  type ShipTransform,
+  type TechModuleId
 } from '@starcorsair/shared';
 import { soundEngine } from '../audio/soundEngine';
 import { useHudStore, type TargetHudSummary } from '../store/useHudStore';
@@ -31,12 +36,21 @@ interface ServerMissionSnapshot {
   claimed: boolean;
 }
 
+interface ServerTechProgressSnapshot {
+  blueprintId: TechModuleId;
+  collected: number;
+  required: number;
+  unlocked: boolean;
+  crafted: boolean;
+}
+
 interface ServerShipSnapshot {
   id: string;
   pilotId: string;
   callsign: string;
   shipModelId: ShipModelId;
   ownedShipsCsv: string;
+  loadoutJson: string;
   x: number;
   y: number;
   z: number;
@@ -62,6 +76,7 @@ interface ServerShipSnapshot {
   cd7: number;
   cd8: number;
   missions?: Iterable<ServerMissionSnapshot>;
+  techProgress?: Iterable<ServerTechProgressSnapshot>;
 }
 
 interface ServerEnemySnapshot {
@@ -392,6 +407,11 @@ class PlanetNetworkClient {
   public buyOrEquipShip(shipModelId: ShipModelId): void {
     if (!this.room) return;
     this.room.send(NETWORK_MESSAGES.BUY_SHIP, { shipModelId });
+  }
+
+  public craftOrEquipTech(techId: TechModuleId): void {
+    if (!this.room) return;
+    this.room.send(NETWORK_MESSAGES.CRAFT_OR_EQUIP_TECH, { techId });
   }
 
   public claimMission(missionId: MissionId): void {
@@ -796,9 +816,30 @@ class PlanetNetworkClient {
           }))
         : useHudStore.getState().missions;
 
+      let loadout: EquippedLoadout = { ...DEFAULT_LOADOUT };
+      if (snap.loadoutJson) {
+        try {
+          loadout = sanitizeLoadout(JSON.parse(snap.loadoutJson));
+        } catch {
+          loadout = useHudStore.getState().loadout;
+        }
+      }
+
+      const techProgress: BlueprintProgress[] = snap.techProgress
+        ? Array.from(snap.techProgress, (t) => ({
+            blueprintId: t.blueprintId,
+            collected: t.collected,
+            required: t.required,
+            unlocked: t.unlocked,
+            crafted: t.crafted
+          }))
+        : useHudStore.getState().techProgress;
+
       useHudStore.getState().syncLocalHud({
         shipModelId: snap.shipModelId,
         ownedShips: ownedShips.length > 0 ? ownedShips : ['vega_scout'],
+        loadout,
+        techProgress,
         missions,
         hull: Math.round(snap.hull),
         hullMax: snap.hullMax,

@@ -164,7 +164,7 @@ export interface VisualEffect {
 
 const WS_URL =
   import.meta.env.VITE_SERVER_WS_URL ??
-  `ws://${typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1'}:2567`;
+  `ws://${typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1'}:49267`;
 
 let effectSeq = 1;
 
@@ -287,7 +287,7 @@ class PlanetNetworkClient {
       const message =
         err instanceof Error
           ? err.message
-          : 'No se pudo conectar al servidor Colyseus (ws://127.0.0.1:2567).';
+          : 'No se pudo conectar al servidor Colyseus (ws://127.0.0.1:49267).';
       if (message.includes('401') || message.toLowerCase().includes('jwt')) {
         clearStoredToken();
         useHudStore.getState().clearAuthSession(message);

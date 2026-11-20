@@ -226,7 +226,7 @@ export function HudOverlay() {
 
             {connectionError && authToken && (
               <div className="pointer-events-auto flex items-center gap-3 rounded-lg border border-rose-500/40 bg-rose-950/85 px-3 py-1.5 text-xs text-rose-200">
-                <span>Sin conexión al servidor (:2567)</span>
+                <span>Sin conexión al servidor (:49267)</span>
                 <button
                   type="button"
                   onClick={() => void planetClient.connect(planetId, authToken)}

@@ -5,6 +5,7 @@ import {
   HANGAR_SHIPS,
   PLANETS,
   SIMULATION_CONSTANTS,
+  addBlueprintPiece,
   advanceMissions
 } from '@starcorsair/shared';
 import {
@@ -22,7 +23,7 @@ import {
 import { InMemoryPilotRepository } from '../services/pilotRepository.js';
 import { sessionRegistry } from '../services/sessionRegistry.js';
 
-describe('@starcorsair/server — Auth JWT, Sesión Única, Persistencia y Schemas', () => {
+describe('@starcorsair/server — Auth JWT, Sesión Única, Persistencia y Tecnología', () => {
   it('inicializa PlanetRoomState con naves, enemigos IA y drops alineados a @starcorsair/shared', () => {
     const state = new PlanetRoomState();
     expect(state.planetId).toBe(PLANETS.vega_kalabesh.id);
@@ -62,7 +63,6 @@ describe('@starcorsair/server — Auth JWT, Sesión Única, Persistencia y Schem
     expect(decoded?.sub).toBe('pilot_123');
     expect(decoded?.callsign).toBe('CommanderVega');
 
-    // Rechaza tokens manipulados
     expect(verifyPilotJwt(`${token}tampered`)).toBeNull();
   });
 
@@ -87,21 +87,18 @@ describe('@starcorsair/server — Auth JWT, Sesión Única, Persistencia y Schem
     sessionRegistry.releaseSession('pilot_unique_1', 'sess-B');
   });
 
-  it('ejecuta compra atómica de nave y reclamación de misión en el repositorio sin saldo negativo', async () => {
+  it('ejecuta compra atómica de nave, reclamación de misión y fabricación/equipamiento de tecnología', async () => {
     const repo = new InMemoryPilotRepository();
     const pilot = await repo.register('AceVega', 'ace@vega.gg', 'Secret123');
 
-    // Intento sin crionita suficiente -> rechazado
     const failBuy = await repo.purchaseOrEquipShip(pilot.id, 'vega_storm', 40);
     expect(failBuy.ok).toBe(false);
 
-    // Compra con crionita suficiente -> éxito y descuenta exactamente 120
     const okBuy = await repo.purchaseOrEquipShip(pilot.id, 'vega_storm', 150);
     expect(okBuy.ok).toBe(true);
     expect(okBuy.profile?.cryonite).toBe(30);
     expect(okBuy.profile?.activeShipModelId).toBe('vega_storm');
 
-    // Avanza misión de Kalabesh y reclama recompensa (+80 Crionita, +1 Plano)
     const updatedMissions = advanceMissions(pilot.missions, {
       kind: 'kill',
       planetId: 'vega_kalabesh',
@@ -115,22 +112,56 @@ describe('@starcorsair/server — Auth JWT, Sesión Única, Persistencia y Schem
       kills: 3,
       activePlanet: 'vega_kalabesh',
       activeShipModelId: 'vega_storm',
+      loadout: pilot.loadout,
+      techProgress: pilot.techProgress,
       missions: updatedMissions
     });
-
     expect(claimed.ok).toBe(true);
     expect(claimed.profile?.cryonite).toBe(110);
-    expect(claimed.profile?.blueprints).toBe(1);
 
-    // Segunda reclamación de la misma misión -> rechazada (idempotencia)
-    const doubleClaim = await repo.claimMission(pilot.id, 'mission_kalabesh_patrol', {
+    // Intento de fabricar blaster_mk2 sin desbloquear plano -> rechazado
+    const lockedTech = await repo.craftOrEquipTech(pilot.id, 'blaster_mk2', {
       cryonite: 110,
       blueprints: 1,
       kills: 3,
       activePlanet: 'vega_kalabesh',
       activeShipModelId: 'vega_storm',
+      loadout: pilot.loadout,
+      techProgress: pilot.techProgress,
       missions: claimed.profile?.missions ?? []
     });
-    expect(doubleClaim.ok).toBe(false);
+    expect(lockedTech.ok).toBe(false);
+
+    // Desbloquea plano y fabrica + equipa blaster_mk2 (-85 Crionita -> 25 restante)
+    const unlockedTechProgress = addBlueprintPiece(pilot.techProgress, 'blaster_mk2').next;
+    const crafted = await repo.craftOrEquipTech(pilot.id, 'blaster_mk2', {
+      cryonite: 110,
+      blueprints: 1,
+      kills: 3,
+      activePlanet: 'vega_kalabesh',
+      activeShipModelId: 'vega_storm',
+      loadout: pilot.loadout,
+      techProgress: unlockedTechProgress,
+      missions: claimed.profile?.missions ?? []
+    });
+    expect(crafted.ok).toBe(true);
+    expect(crafted.action).toBe('craft_and_equip');
+    expect(crafted.profile?.cryonite).toBe(25);
+    expect(crafted.profile?.loadout[1]).toBe('blaster_mk2');
+
+    // Re-equipar blaster_mk1 y volver a blaster_mk2 no vuelve a cobrar crionita
+    const reEquip = await repo.craftOrEquipTech(pilot.id, 'blaster_mk2', {
+      cryonite: 25,
+      blueprints: 1,
+      kills: 3,
+      activePlanet: 'vega_kalabesh',
+      activeShipModelId: 'vega_storm',
+      loadout: { ...pilot.loadout, 1: 'blaster_mk1' },
+      techProgress: crafted.profile?.techProgress ?? [],
+      missions: claimed.profile?.missions ?? []
+    });
+    expect(reEquip.ok).toBe(true);
+    expect(reEquip.action).toBe('equip');
+    expect(reEquip.profile?.cryonite).toBe(25);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ABILITIES,
+  DEFAULT_LOADOUT,
   ENEMY_ARCHETYPES,
   ENERGY_CONSTANTS,
   HANGAR_SHIPS,
@@ -8,15 +9,21 @@ import {
   PLANETS,
   SIMULATION_CONSTANTS,
   STARTER_SHIP_MOVEMENT,
+  TECH_MODULES,
+  addBlueprintPiece,
   advanceMissions,
   canCastAbility,
   canClaimMission,
+  canCraftOrEquipTech,
   createInitialMissions,
+  createInitialTechProgress,
   distanceXZ,
   getSpatialCellKey,
   getTerrainHeight,
+  pickBlueprintDrop,
   regenEnergy,
   resolveDamage,
+  resolveEffectiveAbility,
   resolveRepair,
   resolveShieldRestore,
   stepEnemyAI,
@@ -291,6 +298,45 @@ describe('@starcorsair/shared — Determinismo, Combate, IA, Misiones y Terreno'
       amount: 100
     });
     expect(canClaimMission(missions, 'mission_cryonite_harvest')).toBe(true);
+  });
+
+  it('gestiona planos, fabricación y estadísticas efectivas de tecnología por slot (Fase A)', () => {
+    let progress = createInitialTechProgress();
+
+    // Bláster Mk-II arranca bloqueado
+    expect(canCraftOrEquipTech(progress, 'blaster_mk2', 500)).toEqual({
+      ok: false,
+      reason: 'locked'
+    });
+
+    // Al recoger 1 plano de blaster_mk2 se desbloquea
+    const afterPiece = addBlueprintPiece(progress, 'blaster_mk2');
+    progress = afterPiece.next;
+    expect(afterPiece.unlockedNow).toBe(true);
+
+    // Crionita insuficiente -> rechazado
+    expect(canCraftOrEquipTech(progress, 'blaster_mk2', 20)).toEqual({
+      ok: false,
+      reason: 'cryonite'
+    });
+
+    // Crionita suficiente -> permite fabricar y equipar
+    expect(canCraftOrEquipTech(progress, 'blaster_mk2', 100)).toEqual({
+      ok: true,
+      action: 'craft_and_equip',
+      cost: TECH_MODULES.blaster_mk2.costCryonite
+    });
+
+    // Equipar cambia daño, cooldown y color de láser determinísticamente
+    const mk1 = resolveEffectiveAbility(1, DEFAULT_LOADOUT);
+    const mk2 = resolveEffectiveAbility(1, { ...DEFAULT_LOADOUT, 1: 'blaster_mk2' });
+    expect(mk2.baseDamage).toBeGreaterThan(mk1.baseDamage);
+    expect(mk2.cooldownMs).toBeLessThan(mk1.cooldownMs);
+    expect(mk2.beamColor).toBe('#10b981');
+
+    // Selección determinista de drop
+    const dropped = pickBlueprintDrop(ENEMY_ARCHETYPES.mantis_harvester.dropPool, 0.0);
+    expect(dropped).toBe('blaster_mk3');
   });
 
   it('expone catálogo de Hangar, Planetas y utilidades de distancia/AOI consistentes', () => {

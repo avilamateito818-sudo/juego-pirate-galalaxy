@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import {
+  DEFAULT_LOADOUT,
   createInitialMissions,
+  createInitialTechProgress,
   type AuthPilotProfile,
+  type BlueprintProgress,
+  type EquippedLoadout,
   type MissionProgressState,
   type PlanetId,
   type ShipModelId
@@ -50,6 +54,8 @@ interface HudState {
   dropVersion: number;
   shipModelId: ShipModelId;
   ownedShips: ShipModelId[];
+  loadout: EquippedLoadout;
+  techProgress: BlueprintProgress[];
   missions: MissionProgressState[];
   hull: number;
   hullMax: number;
@@ -85,6 +91,8 @@ interface HudState {
   syncLocalHud: (patch: {
     shipModelId: ShipModelId;
     ownedShips: ShipModelId[];
+    loadout: EquippedLoadout;
+    techProgress: BlueprintProgress[];
     missions: MissionProgressState[];
     hull: number;
     hullMax: number;
@@ -120,6 +128,8 @@ export const useHudStore = create<HudState>((set) => ({
   dropVersion: 0,
   shipModelId: 'vega_scout',
   ownedShips: ['vega_scout'],
+  loadout: { ...DEFAULT_LOADOUT },
+  techProgress: createInitialTechProgress(),
   missions: createInitialMissions(),
   hull: 110,
   hullMax: 110,
@@ -138,7 +148,7 @@ export const useHudStore = create<HudState>((set) => ({
   combatLog: [
     {
       id: 0,
-      text: 'Bienvenido al Sistema Vega. Fija un Mantis (clic o Tab) y dispara con [1] o [6].',
+      text: 'Bienvenido al Sistema Vega. Recoge planos Mantis y fabrica tecnología Mk-II/Mk-III en Órbita [8].',
       tone: 'info'
     }
   ],
@@ -152,6 +162,8 @@ export const useHudStore = create<HudState>((set) => ({
       planetId: pilot.activePlanet,
       shipModelId: pilot.activeShipModelId,
       ownedShips: [...pilot.ownedShips],
+      loadout: { ...pilot.loadout },
+      techProgress: [...pilot.techProgress],
       missions: [...pilot.missions],
       cryonite: pilot.cryonite,
       blueprints: pilot.blueprints,

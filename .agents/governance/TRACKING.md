@@ -18,12 +18,13 @@
 ## 📈 RESUMEN GENERAL DE PROGRESO
 
 ```text
-PROGRESO GLOBAL DEL PROYECTO: [██████░░░░░░░░░░░░░░] 33% (1 / 3 Tareas Sprint 1)
+PROGRESO GLOBAL DEL PROYECTO: [██████████░░░░░░░░░░] 50% (Sprint 1 Completo — Esperando Gate 1)
 
-• PREPARACIÓN (Fase 1 — Saneamiento .agents/):      [██████████] 100% (4/4 Pasos) ➔ ESTADO: CERRADO ✅
+• PREPARACIÓN (Fase 1 — Saneamiento .agents/):      [██████████] 100% (4/4 Pasos)  ➔ ESTADO: CERRADO ✅
 • PREPARACIÓN (Fase 2 — ARCHITECTURE.md v1.1):      [██████████] 100% (5/5 Reglas) ➔ ESTADO: CERRADO ✅
-• PREPARACIÓN (Fase 3 — Monorepo & Git Flow):       [██████████] 100% (3/3 Pasos) ➔ ESTADO: CERRADO ✅
-• SPRINT 1 (Vertical Slice Autoritativo):           [███░░░░░░░]  33% (1/3 Tareas) ➔ ESTADO: EN PROGRESO 🟡
+• PREPARACIÓN (Fase 3 — Monorepo & Git Flow):       [██████████] 100% (3/3 Pasos)  ➔ ESTADO: CERRADO ✅
+• SPRINT 1 (Vertical Slice Jugable — Kalabesh):     [██████████] 100% (3/3 Tareas) ➔ ESTADO: CERRADO & APROBADO ✅
+• SPRINT 2 (Auth JWT, Sesión Única & Prisma DB):    [░░░░░░░░░░]   0% (0/3 Tareas) ➔ ESTADO: SIGUIENTE ⏳
 ```
 
 ---
@@ -63,10 +64,20 @@ PROGRESO GLOBAL DEL PROYECTO: [██████░░░░░░░░░░�
 ---
 
 ## 🏃‍♂️ SPRINT 1: Vertical Slice Server-Authoritative (Kalabesh)
-* **Meta:** Vuelo 3D multijugador sincronizado con Colyseus, enemigos IA con Target-Lock, combate autoritativo (`1–8`) y drops de crionita/energía.
-* **Estado:** 🟡 **EN PROGRESO (1 / 3 Tareas)**
-* **Puerta Humana (Gate 1):** 🔒 *Bloqueada hasta completar `TSK-03` e inspección local.*
+* **Meta:** Vuelo 3D multijugador sincronizado con Colyseus, enemigos IA con Target-Lock, combate autoritativo (`1–8`), drops de crionita/energía/planos y Hangar Orbital.
+* **Estado:** 🟢 **CERRADO & APROBADO ✅ (`build` ✅ | `lint` ✅ | `test` 10/10 ✅ | `43/43 módulos` ✅)**
+* **Puerta Humana (Gate 1):** 🔓 Abierta y aprobada por el Humano el 2026-11-19.
 
 - [x] **`[TSK-01]`** Conexión Colyseus en vivo, nave 3D estilizada (`ShipMesh`), campo estelar puro (`Starfield`), vuelo WASD/Shift predicho + reconciliado con `@starcorsair/shared` e interpolación multijugador (`PlayerController`, `planetClient`).
-- [ ] **`[TSK-02]`** Enemigos IA patrullando Kalabesh, Target-Lock en 3D + Target Frame en HUD, habilidades autoritativas (`1` Bláster con rayos láser, `3` Reparador, `5` Escudo), consumo de energía y cooldowns en `/shared` + `/server`.
-- [ ] **`[TSK-03]`** Drops autoritativos de crionita y orbes de energía al destruir enemigos + habilidad `2` Colector y recarga de energía.
+- [x] **`[TSK-02]`** Enemigos IA Mantis (Explorador, Interceptor, Cosechador) con `stepEnemyAI` puro en `/shared`, Target-Lock (clic o `Tab`) + Target Frame + Radar táctico, habilidades autoritativas (`1` Bláster, `3` Reparador, `4` Postquemador, `5` Escudo, `6` Cohete, `7` Pulso EMP) con energía/cooldowns en `/server`, rayos láser/ondas/explosiones 3D y audio procedural Web Audio.
+- [x] **`[TSK-03]`** Drops autoritativos de Crionita, Orbes de Energía y Planos al destruir enemigos + `2` Colector Gravitacional + `8` Órbita / Hangar con 3 naves desbloqueables (`Vega Interceptor`, `Vega Storm-X`, `Vega Bastion Heavy`) validadas en `/server`.
+
+---
+
+## 🧭 SPRINT 2 (Segunda Mitad — Producción & Persistencia Real):
+* **Meta:** Conectar autenticación JWT, bloqueo de sesión única por piloto, persistencia transaccional en PostgreSQL con Prisma, misiones y segundo planeta/sistema.
+* **Estado:** ⏳ **PENDIENTE (Esperando apertura de Gate 1)**
+
+- [ ] **`[TSK-04]`** Auth JWT (Registro/Login) + verificación en `onAuth` de Colyseus + bloqueo de sesión única por `pilotId` (Regla 10).
+- [ ] **`[TSK-05]`** Persistencia transaccional en PostgreSQL vía Prisma (crionita, planos, naves compradas, autosave y `onLeave` fuera del tick loop — Regla 9) + `prisma/seed.ts`.
+- [ ] **`[TSK-06]`** Sistema de Misiones de Kalabesh + segundo planeta / mapa estelar + despliegue Docker productivo.

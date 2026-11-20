@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { SIMULATION_CONSTANTS } from '@starcorsair/shared';
+import {
+  HANGAR_SHIPS,
+  SIMULATION_CONSTANTS,
+  type AbilitySlot
+} from '@starcorsair/shared';
 import { planetClient } from '../network/planetClient';
 import { useHudStore } from '../store/useHudStore';
 import { ShipMesh } from './ShipMesh';
@@ -17,6 +21,16 @@ function lerpAngle(current: number, target: number, alpha: number): number {
   return current + diff * alpha;
 }
 
+const DIGIT_SLOT_MAP: Record<string, AbilitySlot> = {
+  Digit1: 1,
+  Digit2: 2,
+  Digit3: 3,
+  Digit5: 5,
+  Digit6: 6,
+  Digit7: 7,
+  Digit8: 8
+};
+
 export function PlayerController() {
   const { camera } = useThree();
   const localShipRef = useRef<THREE.Group>(null);
@@ -27,22 +41,43 @@ export function PlayerController() {
 
   const playerCount = useHudStore((s) => s.playerCount);
   const afterburnerActive = useHudStore((s) => s.afterburnerActive);
+  const shipModelId = useHudStore((s) => s.shipModelId);
+  const alive = useHudStore((s) => s.alive);
+  const inOrbit = useHudStore((s) => s.inOrbit);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const code = e.code;
       keysRef.current.add(code);
-      if (code === 'ShiftLeft' || code === 'ShiftRight') {
+
+      if (code === 'ShiftLeft' || code === 'ShiftRight' || code === 'Digit4') {
         useHudStore.getState().setAfterburnerActive(true);
       }
+
+      if (code === 'Tab') {
+        e.preventDefault();
+        planetClient.cycleNearestTarget();
+        return;
+      }
+
+      const slot = DIGIT_SLOT_MAP[code];
+      if (slot && !e.repeat) {
+        planetClient.castAbility(slot);
+      }
     };
+
     const onKeyUp = (e: KeyboardEvent) => {
       const code = e.code;
       keysRef.current.delete(code);
-      if (code === 'ShiftLeft' || code === 'ShiftRight') {
-        useHudStore.getState().setAfterburnerActive(false);
+      if (code === 'ShiftLeft' || code === 'ShiftRight' || code === 'Digit4') {
+        const stillBoost =
+          keysRef.current.has('ShiftLeft') ||
+          keysRef.current.has('ShiftRight') ||
+          keysRef.current.has('Digit4');
+        useHudStore.getState().setAfterburnerActive(stillBoost);
       }
     };
+
     const onBlur = () => {
       keysRef.current.clear();
       useHudStore.getState().setAfterburnerActive(false);
@@ -62,7 +97,6 @@ export function PlayerController() {
     const safeDelta = Math.min(delta, 0.1);
     inputAccumRef.current += safeDelta;
 
-    // 1. Muestreo y envío throttled de inputs a 20 Hz (ARCHITECTURE.md Regla 11)
     while (inputAccumRef.current >= INPUT_STEP_SECONDS) {
       inputAccumRef.current -= INPUT_STEP_SECONDS;
       const keys = keysRef.current;
@@ -74,17 +108,18 @@ export function PlayerController() {
       if (keys.has('KeyW') || keys.has('ArrowUp')) moveZ -= 1;
       if (keys.has('KeyS') || keys.has('ArrowDown')) moveZ += 1;
 
-      const afterburner = keys.has('ShiftLeft') || keys.has('ShiftRight');
+      const afterburner =
+        keys.has('ShiftLeft') || keys.has('ShiftRight') || keys.has('Digit4');
 
       if (moveX !== 0 || moveZ !== 0) {
         planetClient.sendMovementStep(moveX, moveZ, afterburner);
       }
     }
 
-    // 2. Actualizar malla local sin re-renders de React (Regla 6)
     const local = planetClient.localTransform;
     const shipObj = localShipRef.current;
     if (shipObj) {
+      shipObj.visible = planetClient.localAlive && !planetClient.localInOrbit;
       shipObj.position.x += (local.x - shipObj.position.x) * Math.min(1, safeDelta * 14);
       shipObj.position.y += (local.y - shipObj.position.y) * Math.min(1, safeDelta * 14);
       shipObj.position.z += (local.z - shipObj.position.z) * Math.min(1, safeDelta * 14);
@@ -96,63 +131,79 @@ export function PlayerController() {
       );
       shipObj.rotation.y = smoothYawRef.current;
 
-      // 3. Cámara en tercera persona estilo Pirate Galaxy (GC-free)
+      // Cámara en tercera persona (más alta en órbita para vista panorámica)
+      const camHeight = planetClient.localInOrbit ? 48 : 17;
+      const camBack = planetClient.localInOrbit ? 56 : 26;
       _cameraTargetPos.set(
         shipObj.position.x,
-        shipObj.position.y + 15,
-        shipObj.position.z + 24
+        shipObj.position.y + camHeight,
+        shipObj.position.z + camBack
       );
       camera.position.lerp(_cameraTargetPos, Math.min(1, safeDelta * 6));
       _cameraLookAt.set(shipObj.position.x, shipObj.position.y + 1.5, shipObj.position.z);
       camera.lookAt(_cameraLookAt);
     }
 
-    // 4. Interpolación suave de otros pilotos conectados
     const interpAlpha = Math.min(1, safeDelta * 12);
     for (const [id, remote] of planetClient.remoteShips.entries()) {
+      const group = remoteGroupsRef.current.get(id);
+      if (!group) continue;
+      group.visible = remote.alive && !remote.inOrbit;
+      if (!group.visible) continue;
+
       remote.render.x += (remote.target.x - remote.render.x) * interpAlpha;
       remote.render.y += (remote.target.y - remote.render.y) * interpAlpha;
       remote.render.z += (remote.target.z - remote.render.z) * interpAlpha;
       remote.render.yaw = lerpAngle(remote.render.yaw, remote.target.yaw, interpAlpha);
 
-      const group = remoteGroupsRef.current.get(id);
-      if (group) {
-        group.position.set(remote.render.x, remote.render.y, remote.render.z);
-        group.rotation.y = remote.render.yaw;
-      }
+      group.position.set(remote.render.x, remote.render.y, remote.render.z);
+      group.rotation.y = remote.render.yaw;
     }
   });
 
-  // Lista de IDs remotos actualizados solo cuando cambia playerCount
-  const remoteIds = playerCount > 1 ? Array.from(planetClient.remoteShips.keys()) : [];
+  const localSpec = HANGAR_SHIPS[shipModelId];
+  const remoteEntries =
+    playerCount > 1 ? Array.from(planetClient.remoteShips.values()) : [];
 
   return (
     <group>
       <group
         ref={localShipRef}
+        visible={alive && !inOrbit}
         position={[
           planetClient.localTransform.x,
           planetClient.localTransform.y,
           planetClient.localTransform.z
         ]}
       >
-        <ShipMesh color="#38bdf8" accentColor="#22d3ee" afterburner={afterburnerActive} />
+        <ShipMesh
+          color={localSpec.color}
+          accentColor={localSpec.accentColor}
+          afterburner={afterburnerActive}
+        />
       </group>
 
-      {remoteIds.map((id) => (
-        <group
-          key={id}
-          ref={(el) => {
-            if (el) {
-              remoteGroupsRef.current.set(id, el);
-            } else {
-              remoteGroupsRef.current.delete(id);
-            }
-          }}
-        >
-          <ShipMesh color="#f59e0b" accentColor="#fbbf24" />
-        </group>
-      ))}
+      {remoteEntries.map((remote) => {
+        const spec = HANGAR_SHIPS[remote.shipModelId];
+        return (
+          <group
+            key={remote.id}
+            ref={(el) => {
+              if (el) {
+                remoteGroupsRef.current.set(remote.id, el);
+              } else {
+                remoteGroupsRef.current.delete(remote.id);
+              }
+            }}
+          >
+            <ShipMesh
+              color={spec.color}
+              accentColor="#fbbf24"
+              afterburner={remote.afterburner}
+            />
+          </group>
+        );
+      })}
     </group>
   );
 }

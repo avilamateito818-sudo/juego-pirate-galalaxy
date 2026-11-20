@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import type { PlanetId, ShipModelId } from '@starcorsair/shared';
+import {
+  createInitialMissions,
+  type AuthPilotProfile,
+  type MissionProgressState,
+  type PlanetId,
+  type ShipModelId
+} from '@starcorsair/shared';
 
 export type ConnectionStatus = 'offline' | 'connecting' | 'connected' | 'error';
 
@@ -31,6 +37,10 @@ export interface CooldownsState {
 }
 
 interface HudState {
+  authToken: string | null;
+  pilotId: string | null;
+  callsign: string;
+  persistenceMode: 'postgresql' | 'memory-fallback';
   planetId: PlanetId;
   connectionStatus: ConnectionStatus;
   connectionError: string | null;
@@ -39,6 +49,8 @@ interface HudState {
   enemyVersion: number;
   dropVersion: number;
   shipModelId: ShipModelId;
+  ownedShips: ShipModelId[];
+  missions: MissionProgressState[];
   hull: number;
   hullMax: number;
   shield: number;
@@ -55,6 +67,13 @@ interface HudState {
   cooldowns: CooldownsState;
   combatLog: CombatLogEntry[];
   muted: boolean;
+  setAuthSession: (
+    token: string,
+    pilot: AuthPilotProfile,
+    persistenceMode: 'postgresql' | 'memory-fallback'
+  ) => void;
+  clearAuthSession: (reason?: string) => void;
+  setPlanetId: (planetId: PlanetId) => void;
   setConnection: (
     status: ConnectionStatus,
     sessionId?: string | null,
@@ -65,6 +84,8 @@ interface HudState {
   bumpDropVersion: () => void;
   syncLocalHud: (patch: {
     shipModelId: ShipModelId;
+    ownedShips: ShipModelId[];
+    missions: MissionProgressState[];
     hull: number;
     hullMax: number;
     shield: number;
@@ -86,6 +107,10 @@ interface HudState {
 let logIdSeq = 1;
 
 export const useHudStore = create<HudState>((set) => ({
+  authToken: null,
+  pilotId: null,
+  callsign: '',
+  persistenceMode: 'memory-fallback',
   planetId: 'vega_kalabesh',
   connectionStatus: 'offline',
   connectionError: null,
@@ -94,6 +119,8 @@ export const useHudStore = create<HudState>((set) => ({
   enemyVersion: 0,
   dropVersion: 0,
   shipModelId: 'vega_scout',
+  ownedShips: ['vega_scout'],
+  missions: createInitialMissions(),
   hull: 110,
   hullMax: 110,
   shield: 60,
@@ -111,11 +138,39 @@ export const useHudStore = create<HudState>((set) => ({
   combatLog: [
     {
       id: 0,
-      text: 'Bienvenido a Kalabesh. Fija un Mantis (clic o Tab) y dispara con [1] o [6].',
+      text: 'Bienvenido al Sistema Vega. Fija un Mantis (clic o Tab) y dispara con [1] o [6].',
       tone: 'info'
     }
   ],
   muted: false,
+  setAuthSession: (authToken, pilot, persistenceMode) =>
+    set({
+      authToken,
+      pilotId: pilot.id,
+      callsign: pilot.callsign,
+      persistenceMode,
+      planetId: pilot.activePlanet,
+      shipModelId: pilot.activeShipModelId,
+      ownedShips: [...pilot.ownedShips],
+      missions: [...pilot.missions],
+      cryonite: pilot.cryonite,
+      blueprints: pilot.blueprints,
+      kills: pilot.kills,
+      connectionError: null
+    }),
+  clearAuthSession: (reason) =>
+    set({
+      authToken: null,
+      pilotId: null,
+      callsign: '',
+      connectionStatus: 'offline',
+      connectionError: reason ?? null,
+      sessionId: null,
+      playerCount: 0,
+      target: null,
+      inOrbit: false
+    }),
+  setPlanetId: (planetId) => set({ planetId, target: null, inOrbit: false }),
   setConnection: (connectionStatus, sessionId = null, connectionError = null) =>
     set({ connectionStatus, sessionId, connectionError }),
   setPlayerCount: (playerCount) => set({ playerCount }),

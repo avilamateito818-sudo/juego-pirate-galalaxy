@@ -4,7 +4,8 @@ import {
   ENEMY_ARCHETYPES,
   HANGAR_SHIPS,
   PLANETS,
-  SIMULATION_CONSTANTS
+  SIMULATION_CONSTANTS,
+  advanceMissions
 } from '@starcorsair/shared';
 import {
   EnemySchema,
@@ -12,8 +13,16 @@ import {
   PlanetRoomState,
   ShipSchema
 } from '../schemas/PlanetState.js';
+import {
+  hashPassword,
+  signPilotJwt,
+  verifyPassword,
+  verifyPilotJwt
+} from '../services/authService.js';
+import { InMemoryPilotRepository } from '../services/pilotRepository.js';
+import { sessionRegistry } from '../services/sessionRegistry.js';
 
-describe('@starcorsair/server — Adapter Schemas & Shared Parity', () => {
+describe('@starcorsair/server — Auth JWT, Sesión Única, Persistencia y Schemas', () => {
   it('inicializa PlanetRoomState con naves, enemigos IA y drops alineados a @starcorsair/shared', () => {
     const state = new PlanetRoomState();
     expect(state.planetId).toBe(PLANETS.vega_kalabesh.id);
@@ -41,5 +50,87 @@ describe('@starcorsair/server — Adapter Schemas & Shared Parity', () => {
     expect(state.enemies.get('enemy-1')?.hullMax).toBe(65);
     expect(state.drops.get('drop-1')?.amount).toBe(25);
     expect(ABILITIES[1].id).toBe('blaster');
+  });
+
+  it('hashea contraseñas con scrypt y firma/verifica JWT HS256 correctamente', () => {
+    const hash = hashPassword('VegaSecret2026!');
+    expect(verifyPassword('VegaSecret2026!', hash)).toBe(true);
+    expect(verifyPassword('WrongPassword', hash)).toBe(false);
+
+    const token = signPilotJwt('pilot_123', 'CommanderVega');
+    const decoded = verifyPilotJwt(token);
+    expect(decoded?.sub).toBe('pilot_123');
+    expect(decoded?.callsign).toBe('CommanderVega');
+
+    // Rechaza tokens manipulados
+    expect(verifyPilotJwt(`${token}tampered`)).toBeNull();
+  });
+
+  it('expulsa sesión anterior cuando el mismo pilotId inicia sesión en otra pestaña (Regla 10)', async () => {
+    let oldEvicted = false;
+    await sessionRegistry.claimSession('pilot_unique_1', {
+      sessionId: 'sess-A',
+      roomId: 'room-1',
+      evict: async () => {
+        oldEvicted = true;
+      }
+    });
+
+    const evicted = await sessionRegistry.claimSession('pilot_unique_1', {
+      sessionId: 'sess-B',
+      roomId: 'room-1',
+      evict: async () => {}
+    });
+
+    expect(evicted).toBe(true);
+    expect(oldEvicted).toBe(true);
+    sessionRegistry.releaseSession('pilot_unique_1', 'sess-B');
+  });
+
+  it('ejecuta compra atómica de nave y reclamación de misión en el repositorio sin saldo negativo', async () => {
+    const repo = new InMemoryPilotRepository();
+    const pilot = await repo.register('AceVega', 'ace@vega.gg', 'Secret123');
+
+    // Intento sin crionita suficiente -> rechazado
+    const failBuy = await repo.purchaseOrEquipShip(pilot.id, 'vega_storm', 40);
+    expect(failBuy.ok).toBe(false);
+
+    // Compra con crionita suficiente -> éxito y descuenta exactamente 120
+    const okBuy = await repo.purchaseOrEquipShip(pilot.id, 'vega_storm', 150);
+    expect(okBuy.ok).toBe(true);
+    expect(okBuy.profile?.cryonite).toBe(30);
+    expect(okBuy.profile?.activeShipModelId).toBe('vega_storm');
+
+    // Avanza misión de Kalabesh y reclama recompensa (+80 Crionita, +1 Plano)
+    const updatedMissions = advanceMissions(pilot.missions, {
+      kind: 'kill',
+      planetId: 'vega_kalabesh',
+      archetypeId: 'mantis_scout',
+      amount: 3
+    });
+
+    const claimed = await repo.claimMission(pilot.id, 'mission_kalabesh_patrol', {
+      cryonite: 30,
+      blueprints: 0,
+      kills: 3,
+      activePlanet: 'vega_kalabesh',
+      activeShipModelId: 'vega_storm',
+      missions: updatedMissions
+    });
+
+    expect(claimed.ok).toBe(true);
+    expect(claimed.profile?.cryonite).toBe(110);
+    expect(claimed.profile?.blueprints).toBe(1);
+
+    // Segunda reclamación de la misma misión -> rechazada (idempotencia)
+    const doubleClaim = await repo.claimMission(pilot.id, 'mission_kalabesh_patrol', {
+      cryonite: 110,
+      blueprints: 1,
+      kills: 3,
+      activePlanet: 'vega_kalabesh',
+      activeShipModelId: 'vega_storm',
+      missions: claimed.profile?.missions ?? []
+    });
+    expect(doubleClaim.ok).toBe(false);
   });
 });

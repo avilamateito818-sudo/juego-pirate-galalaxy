@@ -16,19 +16,20 @@ const ROCK_COUNT = 75;
 
 export function PlanetSurface({ planetId }: PlanetSurfaceProps) {
   const rocksRef = useRef<THREE.InstancedMesh>(null);
+  const planet = PLANETS[planetId];
 
   const geometry = useMemo(() => {
-    const size = PLANETS[planetId].halfSize * 2;
+    const size = planet.halfSize * 2;
     const plane = new THREE.PlaneGeometry(size, size, SEGMENTS, SEGMENTS);
     plane.rotateX(-Math.PI / 2);
 
     const pos = plane.attributes.position;
     if (pos) {
       const colors = new Float32Array(pos.count * 3);
-      const lowColor = new THREE.Color('#1f2f40');
-      const midColor = new THREE.Color('#3c5263');
-      const highColor = new THREE.Color('#64748b');
-      const padColor = new THREE.Color('#27394d');
+      const lowColor = new THREE.Color(planet.visual.lowColor);
+      const midColor = new THREE.Color(planet.visual.midColor);
+      const highColor = new THREE.Color(planet.visual.highColor);
+      const padColor = new THREE.Color(planet.visual.padColor);
       const tmp = new THREE.Color();
 
       for (let i = 0; i < pos.count; i++) {
@@ -59,15 +60,15 @@ export function PlanetSurface({ planetId }: PlanetSurfaceProps) {
 
     plane.computeVertexNormals();
     return plane;
-  }, [planetId]);
+  }, [planetId, planet]);
 
   useEffect(() => {
     const mesh = rocksRef.current;
     if (!mesh) return;
 
     const dummy = new THREE.Object3D();
-    const half = PLANETS[planetId].halfSize - 18;
-    let seed = 987651;
+    const half = planet.halfSize - 18;
+    let seed = planetId === 'vega_aurora' ? 771123 : 987651;
     const rand = () => {
       seed = (seed * 1664525 + 1013904223) >>> 0;
       return seed / 4294967296;
@@ -92,7 +93,7 @@ export function PlanetSurface({ planetId }: PlanetSurfaceProps) {
     }
 
     mesh.instanceMatrix.needsUpdate = true;
-  }, [planetId]);
+  }, [planetId, planet.halfSize]);
 
   useEffect(() => {
     return () => {
@@ -106,18 +107,25 @@ export function PlanetSurface({ planetId }: PlanetSurfaceProps) {
         <meshStandardMaterial vertexColors roughness={0.92} metalness={0.08} />
       </mesh>
 
-      {/* Formaciones rocosas instanciadas para sensación de escala y velocidad (Regla 6) */}
-      <instancedMesh ref={rocksRef} args={[undefined, undefined, ROCK_COUNT]} castShadow receiveShadow>
+      <instancedMesh
+        ref={rocksRef}
+        args={[undefined, undefined, ROCK_COUNT]}
+        castShadow
+        receiveShadow
+      >
         <dodecahedronGeometry args={[1, 0]} />
-        <meshStandardMaterial color="#334155" roughness={0.85} metalness={0.2} />
+        <meshStandardMaterial
+          color={planet.visual.rockColor}
+          roughness={0.85}
+          metalness={0.2}
+        />
       </instancedMesh>
 
-      {/* Zona segura de aterrizaje */}
       <mesh position={[0, 0.14, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <ringGeometry args={[11, 14, 48]} />
         <meshStandardMaterial
-          color="#0ea5e9"
-          emissive="#0284c7"
+          color={planet.visual.accentColor}
+          emissive={planet.visual.accentColor}
           emissiveIntensity={0.8}
           roughness={0.3}
         />
@@ -132,8 +140,8 @@ export function PlanetSurface({ planetId }: PlanetSurfaceProps) {
           ]}
         />
         <meshStandardMaterial
-          color="#22d3ee"
-          emissive="#06b6d4"
+          color={planet.visual.accentColor}
+          emissive={planet.visual.accentColor}
           emissiveIntensity={0.45}
           transparent
           opacity={0.55}

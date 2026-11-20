@@ -1,13 +1,13 @@
 # COMPENDIO MAESTRO DE ESPECIFICACIÓN TÉCNICA (SPEC)
 ## PROYECTO: StarCorsair — MMORPG Espacial sobre Superficie Planetaria
 
-**Versión:** 0.1.0-INIT  
+**Versión:** 1.0.0  
 **Fecha:** 2026-11-19  
 **Documento Rector Inviolable:** [ARCHITECTURE.md](../../ARCHITECTURE.md) *(v1.1)*  
 **Diagnóstico Base:** [AUDITORIA_HALLAZGOS.md](../../AUDITORIA_HALLAZGOS.md)  
 **Árbitro & Autor:** `StarCorsair-CTO-Lead`  
 **Aprobador:** Product Owner Humano  
-**Estado:** 🟢 **Cimientos del Monorepo completados y verificados — Listo para iniciar Sprint 1**
+**Estado:** ✅ **v1.0.0 Aprobado y Promovido a Producción (`develop` → `release` → `main`)**
 
 ---
 

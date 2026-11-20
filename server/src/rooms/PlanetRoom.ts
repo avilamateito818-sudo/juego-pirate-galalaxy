@@ -1,13 +1,16 @@
-import { Room, type Client } from 'colyseus';
+import { Room, ServerError, type Client } from 'colyseus';
 import {
   ABILITIES,
   ENEMY_ARCHETYPES,
   ENERGY_CONSTANTS,
   HANGAR_SHIPS,
+  MISSIONS,
   NETWORK_MESSAGES,
   PLANETS,
   SIMULATION_CONSTANTS,
+  advanceMissions,
   canCastAbility,
+  createInitialMissions,
   distanceXZ,
   getTerrainHeight,
   regenEnergy,
@@ -19,6 +22,8 @@ import {
   type AbilitySlot,
   type CombatEvent,
   type EnemyArchetypeId,
+  type MissionId,
+  type MissionProgressState,
   type MovementInput,
   type PlanetId,
   type ShipModelId
@@ -26,17 +31,29 @@ import {
 import {
   EnemySchema,
   LootDropSchema,
+  MissionSchema,
   PlanetRoomState,
   ShipSchema
 } from '../schemas/PlanetState.js';
+import { verifyPilotJwt } from '../services/authService.js';
+import { getPilotRepository } from '../services/pilotRepository.js';
+import { sessionRegistry } from '../services/sessionRegistry.js';
 
 interface QueuedInput {
   input: MovementInput;
 }
 
+interface PilotAuthContext {
+  pilotId: string;
+  callsign: string;
+}
+
 interface PlayerRuntime {
+  pilotId: string;
   cooldownUntil: Partial<Record<AbilitySlot, number>>;
   ownedShips: Set<ShipModelId>;
+  missions: MissionProgressState[];
+  dirty: boolean;
   respawnAtMs: number;
   lastAfterburnerAtMs: number;
   messageCountWindow: number;
@@ -55,25 +72,39 @@ interface DropRuntime {
   expiresAtMs: number;
 }
 
-const MAX_PENDING_INPUTS_PER_CLIENT = 16;
-const MAX_MESSAGES_PER_SECOND = 60;
-
-const INITIAL_ENEMY_SPAWNS: ReadonlyArray<{
+interface EnemySpawnSpec {
   id: string;
   archetypeId: EnemyArchetypeId;
   x: number;
   z: number;
   phase: number;
-}> = [
-  { id: 'enemy-scout-1', archetypeId: 'mantis_scout', x: 52, z: -38, phase: 0.2 },
-  { id: 'enemy-scout-2', archetypeId: 'mantis_scout', x: -58, z: -32, phase: 1.4 },
-  { id: 'enemy-scout-3', archetypeId: 'mantis_scout', x: 46, z: 54, phase: 2.6 },
-  { id: 'enemy-scout-4', archetypeId: 'mantis_scout', x: -48, z: 58, phase: 3.9 },
-  { id: 'enemy-inter-1', archetypeId: 'mantis_interceptor', x: 96, z: -72, phase: 0.7 },
-  { id: 'enemy-inter-2', archetypeId: 'mantis_interceptor', x: -94, z: -68, phase: 2.1 },
-  { id: 'enemy-inter-3', archetypeId: 'mantis_interceptor', x: 0, z: -98, phase: 4.4 },
-  { id: 'enemy-boss-1', archetypeId: 'mantis_harvester', x: 0, z: -148, phase: 0.0 }
-];
+}
+
+const MAX_PENDING_INPUTS_PER_CLIENT = 16;
+const MAX_MESSAGES_PER_SECOND = 60;
+
+const PLANET_SPAWNS: Record<PlanetId, ReadonlyArray<EnemySpawnSpec>> = {
+  vega_kalabesh: [
+    { id: 'kal-scout-1', archetypeId: 'mantis_scout', x: 52, z: -38, phase: 0.2 },
+    { id: 'kal-scout-2', archetypeId: 'mantis_scout', x: -58, z: -32, phase: 1.4 },
+    { id: 'kal-scout-3', archetypeId: 'mantis_scout', x: 46, z: 54, phase: 2.6 },
+    { id: 'kal-scout-4', archetypeId: 'mantis_scout', x: -48, z: 58, phase: 3.9 },
+    { id: 'kal-inter-1', archetypeId: 'mantis_interceptor', x: 96, z: -72, phase: 0.7 },
+    { id: 'kal-inter-2', archetypeId: 'mantis_interceptor', x: -94, z: -68, phase: 2.1 },
+    { id: 'kal-inter-3', archetypeId: 'mantis_interceptor', x: 0, z: -98, phase: 4.4 },
+    { id: 'kal-boss-1', archetypeId: 'mantis_harvester', x: 0, z: -148, phase: 0.0 }
+  ],
+  vega_aurora: [
+    { id: 'aur-scout-1', archetypeId: 'mantis_scout', x: 48, z: -44, phase: 0.4 },
+    { id: 'aur-scout-2', archetypeId: 'mantis_scout', x: -52, z: 48, phase: 1.9 },
+    { id: 'aur-inter-1', archetypeId: 'mantis_interceptor', x: 78, z: -20, phase: 0.8 },
+    { id: 'aur-inter-2', archetypeId: 'mantis_interceptor', x: -82, z: -36, phase: 2.4 },
+    { id: 'aur-inter-3', archetypeId: 'mantis_interceptor', x: 35, z: -88, phase: 3.1 },
+    { id: 'aur-inter-4', archetypeId: 'mantis_interceptor', x: -42, z: -92, phase: 4.7 },
+    { id: 'aur-boss-1', archetypeId: 'mantis_harvester', x: 64, z: -135, phase: 0.5 },
+    { id: 'aur-boss-2', archetypeId: 'mantis_harvester', x: -64, z: -135, phase: 3.5 }
+  ]
+};
 
 function isValidMovementInput(payload: unknown): payload is MovementInput {
   if (typeof payload !== 'object' || payload === null) return false;
@@ -103,6 +134,10 @@ function isValidShipModelId(value: unknown): value is ShipModelId {
   return typeof value === 'string' && value in HANGAR_SHIPS;
 }
 
+function isValidMissionId(value: unknown): value is MissionId {
+  return typeof value === 'string' && value in MISSIONS;
+}
+
 export class PlanetRoom extends Room<PlanetRoomState> {
   private readonly inputQueues = new Map<string, QueuedInput[]>();
   private readonly playerRuntime = new Map<string, PlayerRuntime>();
@@ -111,6 +146,29 @@ export class PlanetRoom extends Room<PlanetRoomState> {
   private accumulatorSeconds = 0;
   private simTimeMs = 0;
   private dropSeq = 1;
+  private autosaveTimer: ReturnType<typeof setInterval> | null = null;
+
+  override async onAuth(
+    _client: Client,
+    options: { token?: string }
+  ): Promise<PilotAuthContext> {
+    if (!options?.token || typeof options.token !== 'string') {
+      throw new ServerError(401, 'Token JWT requerido para entrar al sector planetario.');
+    }
+
+    const payload = verifyPilotJwt(options.token);
+    if (!payload) {
+      throw new ServerError(401, 'Token JWT inválido o expirado.');
+    }
+
+    const repo = getPilotRepository();
+    const profile = await repo.getById(payload.sub);
+    if (!profile) {
+      throw new ServerError(401, 'Cuenta de piloto no encontrada.');
+    }
+
+    return { pilotId: profile.id, callsign: profile.callsign };
+  }
 
   override onCreate(options: { planetId?: PlanetId }): void {
     const planetId: PlanetId =
@@ -136,37 +194,72 @@ export class PlanetRoom extends Room<PlanetRoomState> {
         this.accumulatorSeconds -= SIMULATION_CONSTANTS.FIXED_DT_SECONDS;
       }
     }, 1000 / SIMULATION_CONSTANTS.TICK_RATE_HZ);
+
+    // Autosave periódico asíncrono fuera del tick loop (ARCHITECTURE.md Regla 9)
+    this.autosaveTimer = setInterval(() => {
+      void this.flushDirtyPilots();
+    }, SIMULATION_CONSTANTS.AUTOSAVE_INTERVAL_MS);
   }
 
-  override onJoin(client: Client, options?: { callsign?: string }): void {
+  override async onJoin(client: Client): Promise<void> {
+    const auth = client.auth as PilotAuthContext | undefined;
+    if (!auth) {
+      client.leave(4001, 'No autenticado');
+      return;
+    }
+
+    // Lock de sesión única por pilotId (ARCHITECTURE.md Regla 10)
+    await sessionRegistry.claimSession(auth.pilotId, {
+      sessionId: client.sessionId,
+      roomId: this.roomId,
+      evict: async () => {
+        await this.persistPilotBySession(client.sessionId);
+        client.leave(4001, 'Sesión reemplazada por un nuevo inicio de sesión.');
+      }
+    });
+
+    const repo = getPilotRepository();
+    const profile = await repo.getById(auth.pilotId);
+    const activeShipId: ShipModelId = profile?.activeShipModelId ?? 'vega_scout';
+    const shipSpec = HANGAR_SHIPS[activeShipId];
     const planet = PLANETS[this.state.planetId];
-    const starterSpec = HANGAR_SHIPS.vega_scout;
+
     const ship = new ShipSchema();
     ship.id = client.sessionId;
-    ship.callsign =
-      typeof options?.callsign === 'string' && options.callsign.trim().length > 0
-        ? options.callsign.trim().slice(0, 24)
-        : `Pilot-${client.sessionId.slice(0, 5)}`;
-    ship.shipModelId = starterSpec.id;
-    ship.hull = starterSpec.hullMax;
-    ship.hullMax = starterSpec.hullMax;
-    ship.shield = starterSpec.shieldMax;
-    ship.shieldMax = starterSpec.shieldMax;
+    ship.pilotId = auth.pilotId;
+    ship.callsign = profile?.callsign ?? auth.callsign;
+    ship.shipModelId = shipSpec.id;
+    ship.ownedShipsCsv = (profile?.ownedShips ?? ['vega_scout']).join(',');
+    ship.hull = shipSpec.hullMax;
+    ship.hullMax = shipSpec.hullMax;
+    ship.shield = shipSpec.shieldMax;
+    ship.shieldMax = shipSpec.shieldMax;
     ship.energy = ENERGY_CONSTANTS.MAX_ENERGY;
+    ship.cryonite = profile?.cryonite ?? 0;
+    ship.blueprints = profile?.blueprints ?? 0;
+    ship.kills = profile?.kills ?? 0;
     ship.x = planet.spawnPoint.x;
     ship.z = planet.spawnPoint.z;
     ship.y =
       getTerrainHeight(this.state.planetId, ship.x, ship.z) +
-      starterSpec.movement.hoverHeight;
+      shipSpec.movement.hoverHeight;
     ship.yaw = 0;
     ship.alive = true;
     ship.inOrbit = false;
 
+    const missions = profile?.missions
+      ? [...profile.missions]
+      : createInitialMissions();
+    this.syncMissionsToSchema(ship, missions);
+
     this.state.ships.set(client.sessionId, ship);
     this.inputQueues.set(client.sessionId, []);
     this.playerRuntime.set(client.sessionId, {
+      pilotId: auth.pilotId,
       cooldownUntil: {},
-      ownedShips: new Set<ShipModelId>(['vega_scout']),
+      ownedShips: new Set<ShipModelId>(profile?.ownedShips ?? ['vega_scout']),
+      missions,
+      dirty: true, // Actualiza activePlanet
       respawnAtMs: 0,
       lastAfterburnerAtMs: 0,
       messageCountWindow: 0,
@@ -174,10 +267,54 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     });
   }
 
-  override onLeave(client: Client): void {
+  override async onLeave(client: Client): Promise<void> {
+    const rt = this.playerRuntime.get(client.sessionId);
+    await this.persistPilotBySession(client.sessionId);
+    if (rt) {
+      sessionRegistry.releaseSession(rt.pilotId, client.sessionId);
+    }
     this.state.ships.delete(client.sessionId);
     this.inputQueues.delete(client.sessionId);
     this.playerRuntime.delete(client.sessionId);
+  }
+
+  override async onDispose(): Promise<void> {
+    if (this.autosaveTimer) {
+      clearInterval(this.autosaveTimer);
+      this.autosaveTimer = null;
+    }
+    await this.flushDirtyPilots(true);
+  }
+
+  private async persistPilotBySession(sessionId: string): Promise<void> {
+    const ship = this.state.ships.get(sessionId);
+    const rt = this.playerRuntime.get(sessionId);
+    if (!ship || !rt) return;
+
+    rt.dirty = false;
+    try {
+      await getPilotRepository().saveProgress(rt.pilotId, {
+        cryonite: ship.cryonite,
+        blueprints: ship.blueprints,
+        kills: ship.kills,
+        activePlanet: this.state.planetId,
+        activeShipModelId: ship.shipModelId,
+        missions: rt.missions
+      });
+    } catch (err) {
+      rt.dirty = true;
+      console.error('[PlanetRoom] Error al persistir piloto:', err);
+    }
+  }
+
+  private async flushDirtyPilots(force = false): Promise<void> {
+    const tasks: Promise<void>[] = [];
+    for (const [sessionId, rt] of this.playerRuntime.entries()) {
+      if (force || rt.dirty) {
+        tasks.push(this.persistPilotBySession(sessionId));
+      }
+    }
+    await Promise.all(tasks);
   }
 
   private checkRateLimit(sessionId: string): boolean {
@@ -245,12 +382,22 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       const candidate = payload as Record<string, unknown>;
       if (!isValidShipModelId(candidate.shipModelId)) return;
 
-      this.handleBuyOrEquipShip(client, candidate.shipModelId);
+      void this.handleBuyOrEquipShip(client, candidate.shipModelId);
+    });
+
+    this.onMessage(NETWORK_MESSAGES.CLAIM_MISSION, (client, payload: unknown) => {
+      if (!this.checkRateLimit(client.sessionId)) return;
+      if (typeof payload !== 'object' || payload === null) return;
+      const candidate = payload as Record<string, unknown>;
+      if (!isValidMissionId(candidate.missionId)) return;
+
+      void this.handleClaimMission(client, candidate.missionId);
     });
   }
 
   private spawnInitialEnemies(): void {
-    for (const spawn of INITIAL_ENEMY_SPAWNS) {
+    const spawns = PLANET_SPAWNS[this.state.planetId];
+    for (const spawn of spawns) {
       const archetype = ENEMY_ARCHETYPES[spawn.archetypeId];
       const enemy = new EnemySchema();
       enemy.id = spawn.id;
@@ -281,7 +428,6 @@ export class PlanetRoom extends Room<PlanetRoomState> {
   }
 
   private stepSimulation(dtSeconds: number): void {
-    // 1. Jugadores: movimiento, energía, cooldowns y respawn
     for (const [sessionId, ship] of this.state.ships.entries()) {
       const rt = this.playerRuntime.get(sessionId);
       if (!rt) continue;
@@ -344,11 +490,9 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       }
 
       ship.afterburner = usingAfterburner;
-      ship.energy = Math.round(
-        regenEnergy(ship.energy, dtSeconds, usingAfterburner) * 10
-      ) / 10;
+      ship.energy =
+        Math.round(regenEnergy(ship.energy, dtSeconds, usingAfterburner) * 10) / 10;
 
-      // Limpia targetId si el objetivo murió
       if (ship.targetId) {
         const targetEnemy = this.state.enemies.get(ship.targetId);
         if (!targetEnemy || !targetEnemy.alive) {
@@ -359,7 +503,6 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       this.syncCooldowns(ship, rt);
     }
 
-    // 2. Enemigos IA: patrulla, persecución, ataque autoritativo y respawn
     for (const [enemyId, enemy] of this.state.enemies.entries()) {
       const rt = this.enemyRuntime.get(enemyId);
       if (!rt) continue;
@@ -407,7 +550,6 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       }
     }
 
-    // 3. Expiración de drops antiguos
     for (const [dropId, rt] of this.dropRuntime.entries()) {
       if (this.simTimeMs >= rt.expiresAtMs) {
         this.state.drops.delete(dropId);
@@ -614,6 +756,20 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           }
         }
 
+        if (cryoniteGained > 0 || blueprintsGained > 0) {
+          rt.dirty = true;
+          if (cryoniteGained > 0) {
+            rt.missions = advanceMissions(rt.missions, {
+              kind: 'cryonite',
+              planetId: this.state.planetId,
+              amount: cryoniteGained
+            });
+            this.syncMissionsToSchema(ship, rt.missions);
+          }
+          // Persistencia asíncrona fuera del tick loop para botín económico (Regla 9)
+          void this.persistPilotBySession(ship.id);
+        }
+
         const parts: string[] = [];
         if (cryoniteGained > 0) parts.push(`+${cryoniteGained} Crionita`);
         if (energyGained > 0) parts.push(`+${energyGained} Energía`);
@@ -715,6 +871,7 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           ship.hull = ship.hullMax;
           ship.shield = ship.shieldMax;
           ship.energy = ENERGY_CONSTANTS.MAX_ENERGY;
+          void this.persistPilotBySession(ship.id);
         }
         this.emitCombatEvent({
           kind: 'shield_pulse',
@@ -724,8 +881,8 @@ export class PlanetRoom extends Room<PlanetRoomState> {
           fromZ: ship.z,
           color: '#38bdf8',
           message: ship.inOrbit
-            ? 'En Órbita de Kalabesh — Hangar disponible.'
-            : 'Descenso completo sobre la superficie de Kalabesh.'
+            ? `En Órbita de ${PLANETS[this.state.planetId].name} — Hangar y Mapa Estelar disponibles.`
+            : `Descenso completo sobre ${PLANETS[this.state.planetId].name}.`
         });
         break;
       }
@@ -739,9 +896,21 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       killer.targetId = '';
     }
 
-    const rt = this.enemyRuntime.get(enemy.id);
-    if (rt) {
-      rt.respawnAtMs = this.simTimeMs + ENERGY_CONSTANTS.ENEMY_RESPAWN_MS;
+    const killerRt = this.playerRuntime.get(killer.id);
+    if (killerRt) {
+      killerRt.dirty = true;
+      killerRt.missions = advanceMissions(killerRt.missions, {
+        kind: 'kill',
+        planetId: this.state.planetId,
+        archetypeId: enemy.archetypeId,
+        amount: 1
+      });
+      this.syncMissionsToSchema(killer, killerRt.missions);
+    }
+
+    const enemyRt = this.enemyRuntime.get(enemy.id);
+    if (enemyRt) {
+      enemyRt.respawnAtMs = this.simTimeMs + ENERGY_CONSTANTS.ENEMY_RESPAWN_MS;
     }
 
     const archetype = ENEMY_ARCHETYPES[enemy.archetypeId];
@@ -756,9 +925,20 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       message: `${enemy.name} destruido — usa Colector [2] para recoger el botín.`
     });
 
-    // Spawn autoritativo de botín (Crionita + Orbe de Energía + Plano opcional)
-    this.spawnDrop('cryonite', archetype.cryoniteReward, `${archetype.cryoniteReward} Crionita`, enemy.x + 2.5, enemy.z);
-    this.spawnDrop('energy', archetype.energyDropAmount, `+${archetype.energyDropAmount} Energía`, enemy.x - 2.5, enemy.z + 1.5);
+    this.spawnDrop(
+      'cryonite',
+      archetype.cryoniteReward,
+      `${archetype.cryoniteReward} Crionita`,
+      enemy.x + 2.5,
+      enemy.z
+    );
+    this.spawnDrop(
+      'energy',
+      archetype.energyDropAmount,
+      `+${archetype.energyDropAmount} Energía`,
+      enemy.x - 2.5,
+      enemy.z + 1.5
+    );
 
     if (Math.random() < archetype.blueprintDropChance) {
       this.spawnDrop('blueprint', 1, 'Plano Tecnológico Vega', enemy.x, enemy.z - 2.8);
@@ -788,7 +968,10 @@ export class PlanetRoom extends Room<PlanetRoomState> {
     });
   }
 
-  private handleBuyOrEquipShip(client: Client, shipModelId: ShipModelId): void {
+  private async handleBuyOrEquipShip(
+    client: Client,
+    shipModelId: ShipModelId
+  ): Promise<void> {
     const ship = this.state.ships.get(client.sessionId);
     const rt = this.playerRuntime.get(client.sessionId);
     if (!ship || !rt) return;
@@ -805,24 +988,29 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       return;
     }
 
-    const spec = HANGAR_SHIPS[shipModelId];
-    if (!rt.ownedShips.has(shipModelId)) {
-      if (ship.cryonite < spec.costCryonite) {
-        client.send(NETWORK_MESSAGES.COMBAT_EVENT, {
-          kind: 'ability_rejected',
-          sourceId: ship.id,
-          fromX: ship.x,
-          fromY: ship.y,
-          fromZ: ship.z,
-          message: `Crionita insuficiente: necesitas ${spec.costCryonite} (tienes ${ship.cryonite}).`
-        } satisfies CombatEvent);
-        return;
-      }
-      ship.cryonite -= spec.costCryonite;
-      rt.ownedShips.add(shipModelId);
+    const result = await getPilotRepository().purchaseOrEquipShip(
+      rt.pilotId,
+      shipModelId,
+      ship.cryonite
+    );
+
+    if (!result.ok || !result.profile) {
+      client.send(NETWORK_MESSAGES.COMBAT_EVENT, {
+        kind: 'ability_rejected',
+        sourceId: ship.id,
+        fromX: ship.x,
+        fromY: ship.y,
+        fromZ: ship.z,
+        message: result.error ?? 'Operación de Hangar rechazada.'
+      } satisfies CombatEvent);
+      return;
     }
 
+    const spec = HANGAR_SHIPS[result.profile.activeShipModelId];
+    rt.ownedShips = new Set(result.profile.ownedShips);
+    ship.cryonite = result.profile.cryonite;
     ship.shipModelId = spec.id;
+    ship.ownedShipsCsv = result.profile.ownedShips.join(',');
     ship.hullMax = spec.hullMax;
     ship.hull = spec.hullMax;
     ship.shieldMax = spec.shieldMax;
@@ -835,8 +1023,73 @@ export class PlanetRoom extends Room<PlanetRoomState> {
       fromY: ship.y,
       fromZ: ship.z,
       color: spec.color,
-      message: `Hangar: ${spec.name} equipada y lista para descenso.`
+      message: `Hangar: ${spec.name} equipada y guardada.`
     } satisfies CombatEvent);
+  }
+
+  private async handleClaimMission(
+    client: Client,
+    missionId: MissionId
+  ): Promise<void> {
+    const ship = this.state.ships.get(client.sessionId);
+    const rt = this.playerRuntime.get(client.sessionId);
+    if (!ship || !rt) return;
+
+    const result = await getPilotRepository().claimMission(rt.pilotId, missionId, {
+      cryonite: ship.cryonite,
+      blueprints: ship.blueprints,
+      kills: ship.kills,
+      activePlanet: this.state.planetId,
+      activeShipModelId: ship.shipModelId,
+      missions: rt.missions
+    });
+
+    if (!result.ok || !result.profile) {
+      client.send(NETWORK_MESSAGES.COMBAT_EVENT, {
+        kind: 'ability_rejected',
+        sourceId: ship.id,
+        fromX: ship.x,
+        fromY: ship.y,
+        fromZ: ship.z,
+        message: result.error ?? 'No se puede reclamar esa misión todavía.'
+      } satisfies CombatEvent);
+      return;
+    }
+
+    const def = MISSIONS[missionId];
+    ship.cryonite = result.profile.cryonite;
+    ship.blueprints = result.profile.blueprints;
+    rt.missions = [...result.profile.missions];
+    rt.dirty = false;
+    this.syncMissionsToSchema(ship, rt.missions);
+
+    client.send(NETWORK_MESSAGES.COMBAT_EVENT, {
+      kind: 'mission_claimed',
+      sourceId: ship.id,
+      fromX: ship.x,
+      fromY: ship.y,
+      fromZ: ship.z,
+      color: '#facc15',
+      message: `Misión "${def.title}" reclamada: +${def.rewardCryonite} Crionita${
+        def.rewardBlueprints > 0 ? ` • +${def.rewardBlueprints} Plano(s)` : ''
+      }`
+    } satisfies CombatEvent);
+  }
+
+  private syncMissionsToSchema(
+    ship: ShipSchema,
+    missions: readonly MissionProgressState[]
+  ): void {
+    ship.missions.clear();
+    for (const m of missions) {
+      const item = new MissionSchema();
+      item.missionId = m.missionId;
+      item.progress = m.progress;
+      item.targetCount = m.targetCount;
+      item.completed = m.completed;
+      item.claimed = m.claimed;
+      ship.missions.push(item);
+    }
   }
 
   private syncCooldowns(ship: ShipSchema, rt: PlayerRuntime): void {
